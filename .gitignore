@@ -1,0 +1,7 @@
+/bin/
+/ms0/PSP/SAVEDATA/
+.classpath
+.project
+*.dll
+*.txt
+*.properties
