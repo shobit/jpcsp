@@ -26,6 +26,7 @@ public class ErrorResilience {
 	public static int skip_top;
 	public static int skip_bottom;
 	
+	@SuppressWarnings("static-access")
 	public static void decode_mb(MpegEncContext s, int ref){
 		//!!??????????? We need these?
 	    //s.dest[0] = s.current_picture.data[0] + (s.mb_y * 16* s.linesize  ) + s.mb_x * 16;
@@ -386,7 +387,8 @@ public class ErrorResilience {
 	    int mb_stride = s.mb_stride;
 	    int mb_width = s.mb_width;
 	    int mb_height= s.mb_height;
-	    int i, depth, num_avail;
+	    @SuppressWarnings("unused")
+		int i, depth, num_avail;
 	    int mb_x, mb_y, mot_step, mot_stride;
 
 	    int[] param = new int[2];
@@ -441,7 +443,8 @@ public class ErrorResilience {
 	        changed=1;
 	        for(pass=0; (changed!=0 || pass<2) && pass<10; pass++){
 	            //int mb_x, mb_y;
-	            int score_sum=0;
+	            @SuppressWarnings("unused")
+				int score_sum=0;
 
 	            changed=0;
 	            for(mb_y=0; mb_y<s.mb_height; mb_y++){
@@ -831,7 +834,8 @@ public class ErrorResilience {
 	}
 	
 	public static void ff_er_frame_end(MpegEncContext s){
-	    int i, mb_x, mb_y, error, error_type, dc_error, mv_error, ac_error;
+	    @SuppressWarnings("unused")
+		int i, mb_x, mb_y, error, error_type, dc_error, mv_error, ac_error;
 	    int distance;
 	    int[] threshold_part = {100,100,100};
 	    int threshold= 50;

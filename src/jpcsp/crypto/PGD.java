@@ -19,7 +19,8 @@ package jpcsp.crypto;
 public class PGD {
     
     private static AMCTRL amctrl;
-    private static DRM drm;
+    @SuppressWarnings("unused")
+	private static DRM drm;
     private static AMCTRL.BBCipher_Ctx pgdCipherContext;
     private static AMCTRL.BBMac_Ctx pgdMacContext;
     

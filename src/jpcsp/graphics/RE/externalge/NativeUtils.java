@@ -140,7 +140,8 @@ public class NativeUtils {
 		memoryInt[0] = 0;
     }
 
-    public static long getMemoryUnsafeAddr() {
+    @SuppressWarnings("unused")
+	public static long getMemoryUnsafeAddr() {
     	if (!ExternalGE.useUnsafe || memoryInt == null) {
     		return 0L;
     	}

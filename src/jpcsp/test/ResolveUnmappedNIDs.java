@@ -27,12 +27,12 @@ import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.jdom.Document;
-import org.jdom.Element;
-import org.jdom.input.SAXBuilder;
-import org.jdom.xpath.XPath;
+import org.jdom2.Document;
+import org.jdom2.Element;
+import org.jdom2.input.SAXBuilder;
+import org.jdom2.xpath.XPath;
 
-
+@SuppressWarnings("deprecation")
 class NIDInfo {
     public String prx;
     public String prxName;
@@ -99,7 +99,8 @@ class Firmware {
     private Hashtable<String, Module> m_moduleTable;
 
     // psplibdoc parser based on hlide's FunctionLibrary.java
-    public Firmware(String version, String psplibdoc_filename) throws Exception {
+    @SuppressWarnings("deprecation")
+	public Firmware(String version, String psplibdoc_filename) throws Exception {
         m_version = version;
         m_moduleCount = 0;
         m_functionCount = 0;
@@ -108,9 +109,9 @@ class Firmware {
         SAXBuilder builder = new SAXBuilder();
         Document doc = builder.build(new File(psplibdoc_filename));
 
-        XPath modules = XPath.newInstance("/PSPLIBDOC/PRXFILES/PRXFILE/LIBRARIES/LIBRARY");
+		XPath modules = XPath.newInstance("/PSPLIBDOC/PRXFILES/PRXFILE/LIBRARIES/LIBRARY");
 
-        List<?> LibList = modules.selectNodes(doc);
+		List<?> LibList = modules.selectNodes(doc);
         //m_moduleList = modules.selectNodes(doc, "//NAME");
 
         Iterator<?> i = LibList.iterator();

@@ -130,6 +130,7 @@ public class WavefrontExporter implements IGraphicsExporter {
     	exportObjLine(String.format("# modelCount=%d, vertexCount=%d, textureCount=%d, normalCount=%d", exportModelCount, exportVertexCount, exportTextureCount, exportNormalCount));
 	}
 
+	@SuppressWarnings("unused")
 	@Override
 	public void exportVertex(VertexState originalV, VertexState transformedV) {
 		exportObjLine(String.format(l, "v %f %f %f", transformedV.p[0], transformedV.p[1], transformedV.p[2]));
@@ -182,6 +183,7 @@ public class WavefrontExporter implements IGraphicsExporter {
     	}
 	}
 
+	@SuppressWarnings("unused")
 	@Override
 	public void endPrimitive(int numberOfVertex, int primitiveType) {
     	exportVertexCount += numberOfVertex;
@@ -211,7 +213,8 @@ public class WavefrontExporter implements IGraphicsExporter {
     	}
 	}
 
-    private void exportFace(int i1, int i2, int i3) {
+    @SuppressWarnings("unused")
+	private void exportFace(int i1, int i2, int i3) {
     	int p1 = i1 + exportVertexCount;
     	int p2 = i2 + exportVertexCount;
     	int p3 = i3 + exportVertexCount;

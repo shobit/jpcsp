@@ -3017,9 +3017,7 @@ public class H264Context {
 	        // FIXME The two following lines get the bitstream position in the cabac
 	        // decode, I think it should be done by a function in cabac.h (or cabac.c).
 	        if((cabac.low&0x01) != 0) ptr_offset--;
-	        if(CABACContext.CABAC_BITS==16){
-	            if((cabac.low&0x01FF) != 0) ptr_offset--;
-	        }
+	        if((cabac.low&0x01FF) != 0) ptr_offset--;
 
 	        // The pixels are stored in the same order as levels in h->mb array.
 	        for(int i=0;i<128;i++) {
@@ -4956,7 +4954,8 @@ public class H264Context {
 	        }
 
 	    } else {
-	    	int mbCount = 0;
+	    	@SuppressWarnings("unused")
+			int mbCount = 0;
 	        for(;;){
 	            int ret = cavlc.ff_h264_decode_mb_cavlc(this);
 	            
@@ -6108,8 +6107,7 @@ public class H264Context {
 	    }
 	
 	    pps= new PictureParameterSet();
-	    if(pps == null)
-	        return -1;
+
 	    pps.sps_id= s.gb.get_ue_golomb_31("sps_id");
 	    if(/*(unsigned)*/pps.sps_id>=MAX_SPS_COUNT || this.sps_buffers[(int)pps.sps_id] == null){
 	        //av_log(this.s.avctx, AV_LOG_ERROR, "sps_id out of range\n");
@@ -6217,8 +6215,6 @@ public class H264Context {
 	        return -1;
 	    }
 	    sps= new SequenceParameterSet();
-	    if(sps == null)
-	        return -1;
 
 	    sps.time_offset_length = 24;
 	    sps.profile_idc= profile_idc;
@@ -6999,6 +6995,7 @@ public class H264Context {
 	    return (den==0?1:0);
 	}
 	
+	@SuppressWarnings("static-access")
 	public void init_dequant8_coeff_table(){
 	    int i,q,x;
 	    this.dequant8_coeff[0] = this.dequant8_buffer[0];
@@ -7011,7 +7008,7 @@ public class H264Context {
 	        }
 
 	        for(q=0; q<52; q++){
-	            int shift = this.div6[q];
+				int shift = this.div6[q];
 	            int idx = this.rem6[q];
 	            for(x=0; x<64; x++)
 	                this.dequant8_coeff[i][q][(x>>3)|((x&7)<<3)] =
@@ -7897,6 +7894,7 @@ public class H264Context {
 	 *
 	 * @return 0 if okay, <0 if an error occurred, 1 if decoding must not be multithreaded
 	 */
+	@SuppressWarnings("static-access")
 	public static int decode_slice_header(H264Context h, H264Context h0){
 	    MpegEncContext s = h.s;
 	    MpegEncContext s0 = h0.s;

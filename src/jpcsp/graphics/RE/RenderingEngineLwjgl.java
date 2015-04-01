@@ -733,7 +733,8 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
         GL20.glAttachShader(program, shader);
     }
 
-    @Override
+    @SuppressWarnings("deprecation")
+	@Override
     public boolean compilerShader(int shader, String source) {
         GL20.glShaderSource(shader, source);
         GL20.glCompileShader(shader);
@@ -770,13 +771,15 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
         return GL20.glGetUniformLocation(program, name);
     }
 
-    @Override
+    @SuppressWarnings("deprecation")
+	@Override
     public boolean linkProgram(int program) {
         GL20.glLinkProgram(program);
         return GL20.glGetProgram(program, GL20.GL_LINK_STATUS) == GL11.GL_TRUE;
     }
 
-    @Override
+    @SuppressWarnings("deprecation")
+	@Override
     public boolean validateProgram(int program) {
         GL20.glValidateProgram(program);
         return GL20.glGetProgram(program, GL20.GL_VALIDATE_STATUS) == GL11.GL_TRUE;
@@ -784,7 +787,8 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
 
     @Override
     public String getProgramInfoLog(int program) {
-        int infoLogLength = GL20.glGetProgram(program, GL20.GL_INFO_LOG_LENGTH);
+        @SuppressWarnings("deprecation")
+		int infoLogLength = GL20.glGetProgram(program, GL20.GL_INFO_LOG_LENGTH);
 
         if (infoLogLength <= 1) {
             return null;
@@ -802,7 +806,8 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
 
     @Override
     public String getShaderInfoLog(int shader) {
-        int infoLogLength = GL20.glGetShader(shader, GL20.GL_INFO_LOG_LENGTH);
+        @SuppressWarnings("deprecation")
+		int infoLogLength = GL20.glGetShader(shader, GL20.GL_INFO_LOG_LENGTH);
         if (infoLogLength <= 1) {
             return null;
         }
@@ -1324,7 +1329,8 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
         return indices;
     }
 
-    @Override
+    @SuppressWarnings("deprecation")
+	@Override
     public int getActiveUniformOffset(int program, int uniformIndex) {
         return ARBUniformBufferObject.glGetActiveUniforms(program, uniformIndex, ARBUniformBufferObject.GL_UNIFORM_OFFSET);
     }

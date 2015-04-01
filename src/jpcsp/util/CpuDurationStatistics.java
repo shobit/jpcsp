@@ -70,6 +70,7 @@ public class CpuDurationStatistics extends DurationStatistics {
 		super.reset();
 	}
 
+	@SuppressWarnings("unused")
 	@Override
 	public String toString() {
 		StringBuilder result = new StringBuilder();

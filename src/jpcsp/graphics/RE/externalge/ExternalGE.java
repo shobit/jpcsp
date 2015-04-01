@@ -293,6 +293,7 @@ public class ExternalGE {
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void onStallAddrUpdated(PspGeList list) {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.stopEvent(NativeUtils.EVENT_GE_UPDATE_STALL_ADDR);
@@ -392,42 +393,49 @@ public class ExternalGE {
 		return currentList;
 	}
 
+	@SuppressWarnings("unused")
 	public static void onGeStartWaitList() {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.startEvent(NativeUtils.EVENT_GE_WAIT_FOR_LIST);
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void onGeStopWaitList() {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.stopEvent(NativeUtils.EVENT_GE_WAIT_FOR_LIST);
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void onDisplayStartWaitVblank() {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.startEvent(NativeUtils.EVENT_DISPLAY_WAIT_VBLANK);
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void onDisplayStopWaitVblank() {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.stopEvent(NativeUtils.EVENT_DISPLAY_WAIT_VBLANK);
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void onDisplayVblank() {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.notifyEvent(NativeUtils.EVENT_DISPLAY_VBLANK);
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void onGeStartList(PspGeList list) {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.notifyEvent(NativeUtils.EVENT_GE_START_LIST);
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void onGeFinishList(PspGeList list) {
 		if (isAvailable() && DurationStatistics.collectStatistics) {
 			NativeUtils.notifyEvent(NativeUtils.EVENT_GE_FINISH_LIST);

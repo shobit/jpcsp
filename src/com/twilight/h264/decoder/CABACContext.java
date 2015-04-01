@@ -1109,9 +1109,10 @@ public class CABACContext {
 	    return type;
 	}
 
+	@SuppressWarnings("static-access")
 	public int decode_cabac_mb_ref( H264Context h, int list, int n ) {
 	    int refa = h.ref_cache[list][h.scan8[n] - 1];
-	    int refb = h.ref_cache[list][h.scan8[n] - 8];
+		int refb = h.ref_cache[list][h.scan8[n] - 8];
 	    int ref  = 0;
 	    int ctx  = 0;
 

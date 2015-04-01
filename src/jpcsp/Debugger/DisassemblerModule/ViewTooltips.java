@@ -180,7 +180,8 @@ public final class ViewTooltips extends MouseAdapter implements MouseMotionListe
         }
     }
 
-    private void showJList (JScrollPane view, Point pt) {
+    @SuppressWarnings({ "rawtypes", "unchecked" })
+	private void showJList (JScrollPane view, Point pt) {
         JList list = (JList) view.getViewport().getView();
         Point p = SwingUtilities.convertPoint(view, pt.x, pt.y, list);
         int row = list.locationToIndex(p);
@@ -494,7 +495,8 @@ public final class ViewTooltips extends MouseAdapter implements MouseMotionListe
 
         /** Configures a list cell renderer and sets up sizing and the
          * backing image from it */
-        public boolean configure (Object nd, JScrollPane tv, JList list, int row) {
+        @SuppressWarnings({ "rawtypes", "unchecked" })
+		public boolean configure (Object nd, JScrollPane tv, JList list, int row) {
             setLastRendereredObject(nd);
             setLastRenderedScrollPane (tv);
             Component renderer = null;
@@ -596,9 +598,11 @@ public final class ViewTooltips extends MouseAdapter implements MouseMotionListe
         private final JTree tree;
 
         private JScrollPane pane;
-        private final JList list;
+        @SuppressWarnings("rawtypes")
+		private final JList list;
 
-        public Hider (JComponent comp, JScrollPane pane) {
+        @SuppressWarnings("rawtypes")
+		public Hider (JComponent comp, JScrollPane pane) {
             if (comp instanceof JTree) {
                 tree = (JTree) comp;
                 list = null;
