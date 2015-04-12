@@ -36,8 +36,8 @@ import static jpcsp.util.Utilities.parseHexLong;
 
 @SuppressWarnings("serial")
 public class CheatsGUI extends javax.swing.JFrame implements KeyListener {
-    
-    public static final String identifierForConfig = "cheatsGUI";
+	private static final long serialVersionUID = 2885526629263842635L;
+	public static final String identifierForConfig = "cheatsGUI";
     private static final int cheatsThreadSleepMillis = 5;
     private CheatsThread cheatsThread = null;
     
