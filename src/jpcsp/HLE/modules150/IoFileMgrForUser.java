@@ -1322,7 +1322,7 @@ public class IoFileMgrForUser extends HLEModule {
 
             info.asyncThread = threadMan.hleKernelCreateThread("SceIofileAsync",
                     ThreadManForUser.ASYNC_LOOP_ADDRESS, asyncPriority, stackSize,
-                    threadMan.getCurrentThread().attr, 0);
+                    threadMan.getCurrentThread().attr, 0, SysMemUserForUser.USER_PARTITION_ID);
             if (log.isDebugEnabled()) {
             	log.debug(String.format("Starting Async IO thread %s", info.asyncThread));
             }
@@ -2996,7 +2996,7 @@ public class IoFileMgrForUser extends HLEModule {
         if (id != STDOUT_ID && id != STDERR_ID) {
         	delayIoOperation(IoOperation.write);
         }
-        
+
         return result;
     }
 

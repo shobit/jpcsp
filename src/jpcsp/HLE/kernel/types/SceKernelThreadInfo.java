@@ -97,7 +97,7 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
     public final String name;
     public int attr;
     public int status; // it's a bitfield but I don't think we ever use more than 1 bit at once
-    public final int entry_addr;
+    public int entry_addr;
     private int stackAddr; // using low address, no need to add stackSize to the pointer returned by malloc
     public int stackSize;
     public int gpReg_addr;
@@ -141,6 +141,7 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
     public Queue<IAction> pendingActions = new LinkedList<IAction>();
     // Used by sceKernelExtendThreadStack
     private SysMemInfo extendedStackSysMemInfo;
+    public boolean preserveStack;
 
     public static class RegisteredCallbacks {
     	private int type;
@@ -245,13 +246,17 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
 		}
     }
 
-    public SceKernelThreadInfo(String name, int entry_addr, int initPriority, int stackSize, int attr) {
+    public SceKernelThreadInfo(String name, int entry_addr, int initPriority, int stackSize, int attr, int mpidStack) {
         if (stackSize < 512) {
             // 512 byte min. (required for interrupts)
             stackSize = 512;
         } else {
             // 256 byte size alignment.
             stackSize = (stackSize + 0xFF) & ~0xFF;
+        }
+
+        if (mpidStack == 0) {
+        	mpidStack = SysMemUserForUser.USER_PARTITION_ID;
         }
 
         this.name = name;
@@ -261,7 +266,7 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
         this.attr = attr;
         uid = SceUidManager.getNewUid("ThreadMan-thread");
         // Setup the stack.
-    	stackSysMemInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.USER_PARTITION_ID, String.format("ThreadMan-Stack-0x%x-%s", uid, name), SysMemUserForUser.PSP_SMEM_High, stackSize, 0);
+    	stackSysMemInfo = Modules.SysMemUserForUserModule.malloc(mpidStack, String.format("ThreadMan-Stack-0x%x-%s", uid, name), SysMemUserForUser.PSP_SMEM_High, stackSize, 0);
     	if (stackSysMemInfo == null) {
     		stackAddr = 0;
     	} else {
@@ -281,7 +286,7 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
 
         int k0 = stackAddr + stackSize - 0x100; // setup k0
         Memory mem = Memory.getInstance();
-        if (stackAddr != 0 && stackSize > 0) {
+        if (stackAddr != 0 && stackSize > 0 && !preserveStack) {
             // set stack to 0xFF
             if ((attr & PSP_THREAD_ATTR_NO_FILLSTACK) != PSP_THREAD_ATTR_NO_FILLSTACK) {
                 mem.memset(stackAddr, (byte) 0xFF, stackSize);
