@@ -34,7 +34,6 @@ import jpcsp.util.JpcspDialogManager;
 import jpcsp.util.Utilities;
 import static jpcsp.util.Utilities.parseHexLong;
 
-@SuppressWarnings("serial")
 public class CheatsGUI extends javax.swing.JFrame implements KeyListener {
 	private static final long serialVersionUID = 2885526629263842635L;
 	public static final String identifierForConfig = "cheatsGUI";
