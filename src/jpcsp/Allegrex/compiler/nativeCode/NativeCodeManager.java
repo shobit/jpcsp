@@ -250,6 +250,11 @@ public class NativeCodeManager {
 			nativeCodeSequence.setHook(Boolean.parseBoolean(isHookString));
 		}
 
+		String isMethodRetuningString = getContent(element.getElementsByTagName("IsMethodReturning"));
+		if (isMethodRetuningString != null) {
+			nativeCodeSequence.setMethodReturning(Boolean.parseBoolean(isMethodRetuningString));
+		}
+
 		String codeInstructions = getContent(element.getElementsByTagName("CodeInstructions"));
 		loadNativeCodeOpcodes(nativeCodeSequence, codeInstructions);
 

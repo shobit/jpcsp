@@ -2666,7 +2666,11 @@ public class CompilerContext implements ICompilerContext {
     		loadImm(nativeCodeSequence.getParameterValue(i, address));
     		methodSignature.append("I");
     	}
-    	methodSignature.append(")V");
+    	if (nativeCodeSequence.isMethodReturning()) {
+        	methodSignature.append(")I");
+    	} else {
+        	methodSignature.append(")V");
+    	}
 	    mv.visitMethodInsn(Opcodes.INVOKESTATIC, Type.getInternalName(nativeCodeSequence.getNativeCodeSequenceClass()), nativeCodeSequence.getMethodName(), methodSignature.toString());
 
 	    if (nativeCodeInstruction != null && nativeCodeInstruction.isBranching()) {
@@ -2684,6 +2688,9 @@ public class CompilerContext implements ICompilerContext {
 
 	    if (nativeCodeSequence.isReturning()) {
 	    	loadRegister(_ra);
+	        endInternalMethod();
+	        mv.visitInsn(Opcodes.IRETURN);
+	    } else if (nativeCodeSequence.isMethodReturning()) {
 	        endInternalMethod();
 	        mv.visitInsn(Opcodes.IRETURN);
 	    }
