@@ -20,6 +20,7 @@ package jpcsp.HLE;
 import jpcsp.HLE.modules.InterruptManager;
 import jpcsp.HLE.modules.IoFileMgrForUser;
 import jpcsp.HLE.modules.KDebugForKernel;
+import jpcsp.HLE.modules.KUBridge;
 import jpcsp.HLE.modules.Kernel_Library;
 import jpcsp.HLE.modules.LoadCoreForKernel;
 import jpcsp.HLE.modules.LoadExecForUser;
@@ -28,6 +29,7 @@ import jpcsp.HLE.modules.StdioForKernel;
 import jpcsp.HLE.modules.StdioForUser;
 import jpcsp.HLE.modules.SysMemUserForUser;
 import jpcsp.HLE.modules.SysMemForKernel;
+import jpcsp.HLE.modules.SysclibForKernel;
 import jpcsp.HLE.modules.ThreadManForUser;
 import jpcsp.HLE.modules.UtilsForUser;
 import jpcsp.HLE.modules.sceAac;
@@ -94,6 +96,7 @@ import jpcsp.HLE.modules.sceUsbMic;
 import jpcsp.HLE.modules.sceUtility;
 import jpcsp.HLE.modules.sceVaudio;
 import jpcsp.HLE.modules.sceWlan;
+import jpcsp.HLE.modules.semaphore;
 
 import org.apache.log4j.Logger;
 import org.lwjgl.LWJGLException;
@@ -179,6 +182,9 @@ public class Modules {
     public static sceSha1 sceSha1Module = new sceSha1();
     public static sceSha256 sceSha256Module = new sceSha256();
     public static sceMeCore_driver sceMeCore_driverModule = new sceMeCore_driver();
+    public static KUBridge KUBridgeModule = new KUBridge();
+    public static SysclibForKernel SysclibForKernelModule = new SysclibForKernel();
+    public static semaphore semaphoreModule = new semaphore();
 
     public static Logger log = Logger.getLogger("hle");
 
