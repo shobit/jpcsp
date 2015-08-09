@@ -20,3 +20,6 @@ ms0/PSP/GAME/*
 !ms0/PSP/GAME/SavedataTool/
 #UMD images
 umdimages/
+DecodeAudio.bat
+HIMDRENDER.exe
+tmp/

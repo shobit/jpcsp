@@ -733,7 +733,6 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
         GL20.glAttachShader(program, shader);
     }
 
-    @SuppressWarnings("deprecation")
 	@Override
     public boolean compilerShader(int shader, String source) {
         GL20.glShaderSource(shader, source);
@@ -771,14 +770,12 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
         return GL20.glGetUniformLocation(program, name);
     }
 
-    @SuppressWarnings("deprecation")
 	@Override
     public boolean linkProgram(int program) {
         GL20.glLinkProgram(program);
         return GL20.glGetProgram(program, GL20.GL_LINK_STATUS) == GL11.GL_TRUE;
     }
 
-    @SuppressWarnings("deprecation")
 	@Override
     public boolean validateProgram(int program) {
         GL20.glValidateProgram(program);
@@ -787,7 +784,6 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
 
     @Override
     public String getProgramInfoLog(int program) {
-        @SuppressWarnings("deprecation")
 		int infoLogLength = GL20.glGetProgram(program, GL20.GL_INFO_LOG_LENGTH);
 
         if (infoLogLength <= 1) {
@@ -806,7 +802,6 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
 
     @Override
     public String getShaderInfoLog(int shader) {
-        @SuppressWarnings("deprecation")
 		int infoLogLength = GL20.glGetShader(shader, GL20.GL_INFO_LOG_LENGTH);
         if (infoLogLength <= 1) {
             return null;
@@ -1329,7 +1324,6 @@ public class RenderingEngineLwjgl extends NullRenderingEngine {
         return indices;
     }
 
-    @SuppressWarnings("deprecation")
 	@Override
     public int getActiveUniformOffset(int program, int uniformIndex) {
         return ARBUniformBufferObject.glGetActiveUniforms(program, uniformIndex, ARBUniformBufferObject.GL_UNIFORM_OFFSET);
