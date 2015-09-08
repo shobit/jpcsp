@@ -139,6 +139,7 @@ public class RuntimeContext {
 		insn.interpret(processor, opcode);
 	}
 
+	@SuppressWarnings("unused")
 	private static int jumpCall(int address) throws Exception {
         IExecutable executable = getExecutable(address);
         if (executable == null) {
@@ -186,6 +187,7 @@ public class RuntimeContext {
         return returnValue;
 	}
 
+	@SuppressWarnings("unused")
 	public static void jump(int address, int returnAddress) throws Exception {
 		if (debugCodeBlockCalls && log.isDebugEnabled()) {
 			log.debug(String.format("RuntimeContext.jump starting address=0x%08X, returnAddress=0x%08X, $sp=0x%08X", address, returnAddress, cpu._sp));
@@ -211,7 +213,8 @@ public class RuntimeContext {
 		}
 	}
 
-    public static int call(int address) throws Exception {
+    @SuppressWarnings("unused")
+	public static int call(int address) throws Exception {
 		if (debugCodeBlockCalls && log.isDebugEnabled()) {
 			log.debug(String.format("RuntimeContext.call address=0x%08X", address));
 		}
@@ -220,6 +223,7 @@ public class RuntimeContext {
         return returnValue;
     }
 
+	@SuppressWarnings("unused")
 	public static int executeInterpreter(int address) throws Exception {
 		if (debugCodeBlockCalls && log.isDebugEnabled()) {
 			log.debug(String.format("RuntimeContext.executeInterpreter address=0x%08X", address));

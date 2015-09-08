@@ -96,9 +96,6 @@ public class NativeCodeManager {
 
 	private void loadBeforeCodeInstructions(NativeCodeSequence nativeCodeSequence, String codeInstructions) {
 		BufferedReader reader = new BufferedReader(new StringReader(codeInstructions));
-		if (reader == null) {
-			return;
-		}
 
 		Pattern codeInstructionPattern = Pattern.compile("\\s*(\\w+\\s*:?\\s*)?\\[(\\p{XDigit}+)\\].*");
 		final int opcodeGroup = 2;
@@ -138,9 +135,6 @@ public class NativeCodeManager {
 
 	private void loadNativeCodeOpcodes(NativeCodeSequence nativeCodeSequence, String codeInstructions) {
 		BufferedReader reader = new BufferedReader(new StringReader(codeInstructions));
-		if (reader == null) {
-			return;
-		}
 
 		Pattern codeInstructionPattern = Pattern.compile("\\s*((\\w+)\\s*:?\\s*)?\\[(\\p{XDigit}+)(/(\\p{XDigit}+))?\\].*");
 		final int labelGroup = 2;

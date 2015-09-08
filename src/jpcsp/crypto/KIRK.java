@@ -23,8 +23,10 @@ import jpcsp.util.Utilities;
 public class KIRK {
 
     // PSP specific values.
-    private int fuseID0;
-    private int fuseID1;
+    @SuppressWarnings("unused")
+	private int fuseID0;
+    @SuppressWarnings("unused")
+	private int fuseID1;
     private byte[] priv_iv = new byte[0x10];
     private byte[] prng_data = new byte[0x14];
 
@@ -95,8 +97,10 @@ public class KIRK {
     private class AES128_CBC_Header {
 
         private int mode;
-        private int unk1;
-        private int unk2;
+        @SuppressWarnings("unused")
+		private int unk1;
+        @SuppressWarnings("unused")
+		private int unk2;
         private int keySeed;
         private int dataSize;
 
@@ -117,7 +121,8 @@ public class KIRK {
         private byte[] CMACDataHash = new byte[16];
         private byte[] unk1 = new byte[32];
         private int mode;
-        private byte useECDSAhash;
+        @SuppressWarnings("unused")
+		private byte useECDSAhash;
         private byte[] unk2 = new byte[11];
         private int dataSize;
         private int dataOffset;
@@ -140,7 +145,8 @@ public class KIRK {
         }
     }
 
-    private class AES128_CMAC_ECDSA_Header {
+    @SuppressWarnings("unused")
+	private class AES128_CMAC_ECDSA_Header {
 
         private byte[] AES128Key = new byte[16];
         private byte[] ECDSAHeaderSig_r = new byte[20];
@@ -815,8 +821,10 @@ public class KIRK {
 
         // TODO
         ECDSA ecdsa = new ECDSA();
-        ECDSASignCtx ctx = new ECDSASignCtx(in);
-        ECDSASig sig = new ECDSASig();
+        @SuppressWarnings("unused")
+		ECDSASignCtx ctx = new ECDSASignCtx(in);
+        @SuppressWarnings("unused")
+		ECDSASig sig = new ECDSASig();
         ecdsa.setCurve();
 
         return 0;
@@ -835,7 +843,8 @@ public class KIRK {
 
         // TODO
         ECDSA ecdsa = new ECDSA();
-        ECDSAVerifyCtx ctx = new ECDSAVerifyCtx(in);
+        @SuppressWarnings("unused")
+		ECDSAVerifyCtx ctx = new ECDSAVerifyCtx(in);
         ecdsa.setCurve();
 
         return 0;

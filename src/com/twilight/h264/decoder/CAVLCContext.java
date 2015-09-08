@@ -315,7 +315,8 @@ public class CAVLCContext {
 
 	    if (0==calvc_inited) {
 	        int i;
-	        int offset;
+	        @SuppressWarnings("unused")
+			int offset;
 	        calvc_inited = 1;
 
 	        //chroma_dc_coeff_token_vlc.table_base = chroma_dc_coeff_token_vlc_table;
@@ -725,6 +726,7 @@ public class CAVLCContext {
 	    return 0;
 	}
 
+	@SuppressWarnings("static-access")
 	public int ff_h264_decode_mb_cavlc(H264Context  h){
 	    MpegEncContext s = h.s;
 	    int mb_xy;

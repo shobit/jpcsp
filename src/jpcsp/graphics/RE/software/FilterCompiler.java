@@ -165,6 +165,7 @@ public class FilterCompiler {
 		return compiledRenderer;
 	}
 
+	@SuppressWarnings("unused")
 	public static void exit() {
 		if (instance == null) {
 			return;

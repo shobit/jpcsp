@@ -29,6 +29,7 @@ public class RenderingEngineFactory {
 	private static final boolean enableCheckErrorsProxy = false;
 	private static final boolean enableStatisticsProxy = false;
 
+	@SuppressWarnings("unused")
 	private static IRenderingEngine createRenderingEngine(boolean enableSoftwareRendering) {
 		// Build the rendering pipeline, from the last entry to the first one.
 		IRenderingEngine re;

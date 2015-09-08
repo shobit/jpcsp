@@ -356,10 +356,6 @@ public class PSMFPlayer implements Runnable {
 
 	    /* find the mpeg1 video decoder */
 	    codec = new H264Decoder();
-	    if (codec == null) {
-	    	System.out.println("codec not found\n");
-	        System.exit(1);
-	    }
 
 	    c = MpegEncContext.avcodec_alloc_context();
 	    picture = AVFrame.avcodec_alloc_frame();

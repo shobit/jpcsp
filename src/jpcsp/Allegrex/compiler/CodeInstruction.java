@@ -176,7 +176,8 @@ public class CodeInstruction {
         context.startInstruction(this);
     }
 
-    public void compile(CompilerContext context, MethodVisitor mv) {
+    @SuppressWarnings("unused")
+	public void compile(CompilerContext context, MethodVisitor mv) {
         startCompile(context, mv);
 
         if (isBranching()) {

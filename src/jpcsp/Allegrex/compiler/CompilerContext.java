@@ -1708,7 +1708,8 @@ public class CompilerContext implements ICompilerContext {
         return !codeInstruction.isBranchTarget() && !codeInstruction.isBranching();
     }
 
-    public void startInstruction(CodeInstruction codeInstruction) {
+    @SuppressWarnings("unused")
+	public void startInstruction(CodeInstruction codeInstruction) {
     	if (RuntimeContext.enableLineNumbers) {
     		int lineNumber = codeInstruction.getAddress() - getCodeBlock().getLowestAddress();
     		// Java line number is unsigned 16bits
@@ -2258,6 +2259,7 @@ public class CompilerContext implements ICompilerContext {
 		}
 	}
 
+	@SuppressWarnings("unused")
 	private void prepareMemIndex(int registerIndex, int offset, boolean isRead, int width) {
 		loadRegister(registerIndex);
 		if (offset != 0) {

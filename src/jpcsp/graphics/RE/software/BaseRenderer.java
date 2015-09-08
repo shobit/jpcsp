@@ -454,6 +454,7 @@ public abstract class BaseRenderer implements IRenderer {
 	protected void preRender() {
 	}
 
+	@SuppressWarnings("unused")
 	protected void postRender() {
         if (captureEachPrimitive && State.captureGeNextFrame) {
         	// Capture the GE screen after each primitive
@@ -473,6 +474,7 @@ public abstract class BaseRenderer implements IRenderer {
 		CaptureManager.captureImage(address, 0, buffer, width, height, width, depthBufferPixelFormat, false, 0, false, false);
 	}
 
+	@SuppressWarnings("unused")
 	protected void statisticsFilters(int numberPixels) {
 		if (!DurationStatistics.collectStatistics || !isLogInfoEnabled) {
 			return;
@@ -489,6 +491,7 @@ public abstract class BaseRenderer implements IRenderer {
 		}
 	}
 
+	@SuppressWarnings("unused")
 	public static void exit() {
 		if (log.isInfoEnabled() && DurationStatistics.collectStatistics) {
 			LongLongKey[] filterKeys = filtersStatistics.keySet().toArray(new LongLongKey[filtersStatistics.size()]);

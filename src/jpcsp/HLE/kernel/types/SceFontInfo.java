@@ -111,7 +111,8 @@ public class SceFontInfo {
     protected SceFontInfo() {
     }
 
-    public SceFontInfo(PGF fontFile) {
+    @SuppressWarnings("unused")
+	public SceFontInfo(PGF fontFile) {
         // PGF.
         fileName = fontFile.getFileNamez();
         fileType = fontFile.getPGFMagic();

@@ -819,6 +819,7 @@ public abstract class BasePrimitiveRenderer extends BaseRenderer {
 		}
 	}
 
+	@SuppressWarnings("unused")
 	@Override
 	public void postRender() {
 		if (DurationStatistics.collectStatistics && isLogInfoEnabled) {
@@ -843,6 +844,7 @@ public abstract class BasePrimitiveRenderer extends BaseRenderer {
 		statisticsFilters(pixel.getNumberPixels());
 	}
 
+	@SuppressWarnings("unused")
 	@Override
 	public void preRender() {
 		pixel.reset();

@@ -75,6 +75,7 @@ public class CodecTest {
 		write(mem, addr, data, 0, data.length);
 	}
 
+	@SuppressWarnings("unused")
 	public static void main(String[] args) {
         DOMConfigurator.configure("LogSettings.xml");
 		Memory mem = Memory.getInstance();

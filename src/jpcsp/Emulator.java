@@ -94,7 +94,8 @@ public class Emulator implements Runnable {
         return mainThread;
     }
 
-    public static void exit() {
+    @SuppressWarnings("unused")
+	public static void exit() {
         if (DurationStatistics.collectStatistics) {
             log.info(TextureCache.getInstance().statistics);
         }

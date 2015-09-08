@@ -612,7 +612,8 @@ public class IoFileMgrForUser extends HLEModule {
         return "IoFileMgrForUser";
     }
 
-    public void registerUmdIso() {
+    @SuppressWarnings("unused")
+	public void registerUmdIso() {
     	if (vfsManager != null && useVirtualFileSystem) {
     		if (iso != null && Modules.sceUmdUserModule.isUmdActivated()) {
     			IVirtualFileSystem vfsIso = new UmdIsoVirtualFileSystem(iso);

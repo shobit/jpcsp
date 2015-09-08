@@ -1075,7 +1075,8 @@ public class sceDisplay extends HLEModule {
         super.stop();
     }
 
-    public void exit() {
+    @SuppressWarnings("unused")
+	public void exit() {
         if (statistics != null && DurationStatistics.collectStatistics) {
             log.info("----------------------------- sceDisplay exit -----------------------------");
             log.info(statistics.toString());
