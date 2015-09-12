@@ -3133,8 +3133,8 @@ public class VideoEngine {
             // Remove the destination address from the texture cache
             if (canCacheTexture(context.textureTx_destinationAddress)) {
                 TextureCache textureCache = TextureCache.getInstance();
-                textureCache.resetTextureAlreadyHashed(context.textureTx_destinationAddress, context.tex_clut_addr);
-                textureCache.resetTextureAlreadyHashed(context.textureTx_destinationAddress, 0);
+                textureCache.resetTextureAlreadyHashed(context.textureTx_destinationAddress, context.tex_clut_addr, context.tex_clut_start, context.tex_clut_mode);
+                textureCache.resetTextureAlreadyHashed(context.textureTx_destinationAddress, 0, 0, 0);
             }
             if (context.textureTx_destinationAddress == (context.texture_base_pointer[0] & Memory.addressMask)) {
                 textureChanged = true;
@@ -6597,6 +6597,10 @@ public class VideoEngine {
                             context.tex_translate_x, context.tex_translate_y, 0, 1
                         };
                         if (textureFlipped) {
+                        	if (textureMatrix[5] < 0f) {
+                        		// If the texture was mapped upside-down, also invert the translation
+                                textureMatrix[13] = 1f - textureMatrix[13];
+                        	}
                             textureMatrix[5] = -textureMatrix[5];
                             if (isLogDebugEnabled) {
                                 log.debug("Flipped TMAP_TEXTURE_MAP_MODE_TEXTURE_COORDIATES_UV");
