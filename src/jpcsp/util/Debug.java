@@ -22,7 +22,7 @@ import static jpcsp.graphics.GeCommands.TPSM_PIXEL_STORAGE_MODE_16BIT_BGR5650;
 import static jpcsp.graphics.GeCommands.TPSM_PIXEL_STORAGE_MODE_32BIT_ABGR8888;
 import jpcsp.Memory;
 import jpcsp.HLE.Modules;
-import jpcsp.HLE.modules150.sceFont;
+import jpcsp.HLE.modules.sceFont;
 
 /**
  * @author gid15
@@ -249,7 +249,7 @@ public class Debug {
 
 	private static void setPixel(int base, int bufferwidth, int x, int y, int color, int pixelformat, int size) {
 		Memory mem = Memory.getInstance();
-		int pixelBytes = jpcsp.HLE.modules150.sceDisplay.getPixelFormatBytes(pixelformat);
+		int pixelBytes = jpcsp.HLE.modules.sceDisplay.getPixelFormatBytes(pixelformat);
 		int framebufferAddr = base + (y * bufferwidth + x) * pixelBytes;
 		int pixelColor = getPixelColor(color, pixelformat);
 		for (int i = 0; i < size; i++) {

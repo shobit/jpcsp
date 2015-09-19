@@ -14,7 +14,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-package jpcsp.HLE.modules;
+package jpcsp.HLE;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -29,10 +29,6 @@ import jpcsp.Emulator;
 import jpcsp.Memory;
 import jpcsp.NIDMapper;
 import jpcsp.Allegrex.compiler.RuntimeContext;
-import jpcsp.HLE.HLEFunction;
-import jpcsp.HLE.HLELogging;
-import jpcsp.HLE.HLEUnimplemented;
-import jpcsp.HLE.Modules;
 import jpcsp.HLE.kernel.Managers;
 import jpcsp.HLE.kernel.types.SceModule;
 
@@ -43,6 +39,7 @@ import jpcsp.HLE.kernel.types.SceModule;
  * 
  * @author fiveofhearts
  */
+@HLELogging
 public class HLEModuleManager {
 	private static Logger log = Modules.log;
     private static HLEModuleManager instance;
@@ -61,6 +58,8 @@ public class HLEModuleManager {
 
     private HashMap<String, List<HLEModule>> flash0prxMap;
     private Set<HLEModule> installedModules = new HashSet<HLEModule>();
+
+    private HLELogging defaultHLEFunctionLogging;
 
     /**
      * The current firmware version as an integer value in this format:
@@ -193,6 +192,10 @@ public class HLEModuleManager {
             instance = new HLEModuleManager();
         }
         return instance;
+    }
+
+    private HLEModuleManager() {
+		defaultHLEFunctionLogging = HLEModuleManager.class.getAnnotation(HLELogging.class);
     }
 
     /** (String)"2.71" to (int)271 */
@@ -412,7 +415,15 @@ public class HLEModuleManager {
 		this.startFromSyscall = startFromSyscall;
 
 		for (DefaultModule defaultModule : DefaultModule.values()) {
+			if (log.isDebugEnabled()) {
+				log.debug(String.format("Starting module %s", defaultModule.module.getName()));
+			}
+
 			defaultModule.module.start();
+
+			if (log.isDebugEnabled()) {
+				log.debug(String.format("Started module %s", defaultModule.module.getName()));
+			}
 		}
 
 		this.startFromSyscall = false;
@@ -451,6 +462,8 @@ public class HLEModuleManager {
 			if (hleModuleLogging != null) {
 				// Take the module default logging
 				hleLogging = hleModuleLogging;
+			} else {
+				hleLogging = defaultHLEFunctionLogging;
 			}
 		}
 

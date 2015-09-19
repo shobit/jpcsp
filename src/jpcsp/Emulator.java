@@ -16,7 +16,7 @@
  */
 package jpcsp;
 
-import static jpcsp.HLE.modules150.SysMemUserForUser.USER_PARTITION_ID;
+import static jpcsp.HLE.modules.SysMemUserForUser.USER_PARTITION_ID;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -28,12 +28,12 @@ import jpcsp.Allegrex.compiler.RuntimeContext;
 import jpcsp.Debugger.InstructionCounter;
 import jpcsp.Debugger.StepLogger;
 import jpcsp.GUI.IMainGUI;
+import jpcsp.HLE.HLEModuleManager;
 import jpcsp.HLE.HLEUidObjectMapping;
 import jpcsp.HLE.Modules;
 import jpcsp.HLE.kernel.Managers;
 import jpcsp.HLE.kernel.managers.SceUidManager;
 import jpcsp.HLE.kernel.types.SceModule;
-import jpcsp.HLE.modules.HLEModuleManager;
 import jpcsp.graphics.GEProfiler;
 import jpcsp.graphics.VertexCache;
 import jpcsp.graphics.VideoEngine;

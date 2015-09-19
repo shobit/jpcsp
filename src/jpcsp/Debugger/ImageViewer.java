@@ -28,7 +28,7 @@ import javax.swing.SwingUtilities;
 
 import jpcsp.Emulator;
 import jpcsp.HLE.Modules;
-import jpcsp.HLE.modules150.sceDisplay;
+import jpcsp.HLE.modules.sceDisplay;
 import jpcsp.Memory;
 import jpcsp.MemoryMap;
 import jpcsp.WindowPropSaver;

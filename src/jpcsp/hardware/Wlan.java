@@ -16,14 +16,14 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.hardware;
 
-import static jpcsp.HLE.modules150.sceNet.convertStringToMacAddress;
+import static jpcsp.HLE.modules.sceNet.convertStringToMacAddress;
 
 import java.util.Random;
 
 import org.apache.log4j.Logger;
 
 import jpcsp.Emulator;
-import jpcsp.HLE.modules150.sceUtility;
+import jpcsp.HLE.modules.sceUtility;
 import jpcsp.settings.AbstractBoolSettingsListener;
 import jpcsp.settings.Settings;
 

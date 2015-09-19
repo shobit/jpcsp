@@ -4,7 +4,7 @@
  */
 package jpcsp.GUI;
 
-import static jpcsp.HLE.modules150.sceAudiocodec.PSP_CODEC_AT3PLUS;
+import static jpcsp.HLE.modules.sceAudiocodec.PSP_CODEC_AT3PLUS;
 
 import java.awt.Color;
 import java.awt.Component;
@@ -49,9 +49,9 @@ import jpcsp.Memory;
 import jpcsp.WindowPropSaver;
 import jpcsp.HLE.VFS.IVirtualFile;
 import jpcsp.HLE.VFS.iso.UmdIsoVirtualFile;
-import jpcsp.HLE.modules150.sceAtrac3plus.AtracFileInfo;
-import jpcsp.HLE.modules150.sceMpeg;
-import jpcsp.HLE.modules150.sceMpeg.PSMFHeader;
+import jpcsp.HLE.modules.sceMpeg;
+import jpcsp.HLE.modules.sceAtrac3plus.AtracFileInfo;
+import jpcsp.HLE.modules.sceMpeg.PSMFHeader;
 import jpcsp.filesystems.umdiso.UmdIsoFile;
 import jpcsp.filesystems.umdiso.UmdIsoReader;
 import jpcsp.format.PSF;

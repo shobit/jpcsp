@@ -16,8 +16,8 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.GUI;
 
-import static jpcsp.HLE.modules150.sceAudiocodec.PSP_CODEC_AT3PLUS;
-import static jpcsp.HLE.modules150.sceMpeg.mpegTimestampPerSecond;
+import static jpcsp.HLE.modules.sceAudiocodec.PSP_CODEC_AT3PLUS;
+import static jpcsp.HLE.modules.sceMpeg.mpegTimestampPerSecond;
 import static jpcsp.format.psmf.PsmfAudioDemuxVirtualFile.PACK_START_CODE;
 import static jpcsp.format.psmf.PsmfAudioDemuxVirtualFile.PADDING_STREAM;
 import static jpcsp.format.psmf.PsmfAudioDemuxVirtualFile.PRIVATE_STREAM_1;
@@ -770,6 +770,7 @@ public class UmdVideoPlayer implements KeyListener {
 		return size;
 	}
 
+	@SuppressWarnings("unused")
 	private int findVideoFrameEndOld() {
 		for (int i = 5; i < videoDataOffset; i++) {
 			if (videoData[i - 4] == 0x00 &&
@@ -941,7 +942,8 @@ public class UmdVideoPlayer implements KeyListener {
         }
     }
 
-    private void writeFile(int[] values, int size, String name) {
+    @SuppressWarnings("unused")
+	private void writeFile(int[] values, int size, String name) {
     	try {
 			OutputStream os = new FileOutputStream(name);
 			byte[] bytes = new byte[size];

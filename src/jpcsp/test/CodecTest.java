@@ -16,17 +16,17 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.test;
 
-import static jpcsp.HLE.modules150.sceAtrac3plus.AT3_MAGIC;
-import static jpcsp.HLE.modules150.sceAtrac3plus.AT3_PLUS_MAGIC;
-import static jpcsp.HLE.modules150.sceAtrac3plus.FMT_CHUNK_MAGIC;
-import static jpcsp.HLE.modules150.sceAtrac3plus.RIFF_MAGIC;
-import static jpcsp.HLE.modules150.sceAudiocodec.PSP_CODEC_AAC;
-import static jpcsp.HLE.modules150.sceAudiocodec.PSP_CODEC_AT3;
-import static jpcsp.HLE.modules150.sceAudiocodec.PSP_CODEC_AT3PLUS;
-import static jpcsp.HLE.modules150.sceAudiocodec.PSP_CODEC_MP3;
-import static jpcsp.HLE.modules150.sceMpeg.PSMF_MAGIC;
-import static jpcsp.HLE.modules150.sceMpeg.PSMF_MAGIC_OFFSET;
-import static jpcsp.HLE.modules150.sceMpeg.PSMF_STREAM_OFFSET_OFFSET;
+import static jpcsp.HLE.modules.sceAtrac3plus.AT3_MAGIC;
+import static jpcsp.HLE.modules.sceAtrac3plus.AT3_PLUS_MAGIC;
+import static jpcsp.HLE.modules.sceAtrac3plus.FMT_CHUNK_MAGIC;
+import static jpcsp.HLE.modules.sceAtrac3plus.RIFF_MAGIC;
+import static jpcsp.HLE.modules.sceAudiocodec.PSP_CODEC_AAC;
+import static jpcsp.HLE.modules.sceAudiocodec.PSP_CODEC_AT3;
+import static jpcsp.HLE.modules.sceAudiocodec.PSP_CODEC_AT3PLUS;
+import static jpcsp.HLE.modules.sceAudiocodec.PSP_CODEC_MP3;
+import static jpcsp.HLE.modules.sceMpeg.PSMF_MAGIC;
+import static jpcsp.HLE.modules.sceMpeg.PSMF_MAGIC_OFFSET;
+import static jpcsp.HLE.modules.sceMpeg.PSMF_STREAM_OFFSET_OFFSET;
 import static jpcsp.util.Utilities.endianSwap32;
 
 import java.io.File;
