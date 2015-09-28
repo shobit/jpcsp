@@ -14,20 +14,33 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-package jpcsp.format.rco.object;
+package jpcsp.format.rco.vsmx.objects;
 
-import jpcsp.format.RCO.RCOEntry;
 import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
+import jpcsp.format.rco.vsmx.interpreter.VSMXFunction;
+import jpcsp.format.rco.vsmx.interpreter.VSMXInterpreter;
 import jpcsp.format.rco.vsmx.interpreter.VSMXObject;
 
-public class GroupObject extends BasePositionObject {
+public class BaseNativeObject {
+	private VSMXObject object;
+
+	public VSMXObject getObject() {
+		return object;
+	}
+
+	public void setObject(VSMXObject object) {
+		this.object = object;
+	}
+
+	public void callCallback(VSMXInterpreter interpreter, String name, VSMXBaseObject[] arguments) {
+		VSMXBaseObject function = getObject().getPropertyValue(name);
+		if (function instanceof VSMXFunction) {
+			interpreter.interpretFunction((VSMXFunction) function, null);
+		}
+	}
+
 	@Override
-	public VSMXBaseObject createVSMXObject(VSMXBaseObject parent, RCOEntry entry) {
-		VSMXBaseObject object = super.createVSMXObject(parent, entry);
-
-		VSMXObject children = new VSMXObject();
-		object.setPropertyValue("children", children);
-
-		return children;
+	public String toString() {
+		return getClass().getSimpleName();
 	}
 }

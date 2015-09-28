@@ -17,42 +17,48 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
 package jpcsp.format;
 
 import static jpcsp.util.Utilities.endianSwap32;
-import jpcsp.format.rco.AnimFactory;
-import jpcsp.format.rco.ObjectFactory;
-import jpcsp.format.rco.object.BaseObject;
-import jpcsp.util.Utilities;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import org.apache.log4j.Logger;
+
+import jpcsp.format.rco.AnimFactory;
+import jpcsp.format.rco.ObjectFactory;
+import jpcsp.format.rco.SoundFactory;
+import jpcsp.format.rco.object.BaseObject;
+import jpcsp.format.rco.vsmx.VSMX;
+import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
+import jpcsp.format.rco.vsmx.interpreter.VSMXInterpreter;
+import jpcsp.format.rco.vsmx.interpreter.VSMXNativeObject;
+import jpcsp.format.rco.vsmx.objects.Controller;
+import jpcsp.format.rco.vsmx.objects.MoviePlayer;
+import jpcsp.format.rco.vsmx.objects.Resource;
+import jpcsp.util.Utilities;
 
 public class RCO {
 	public static final Logger log = Logger.getLogger("rco");
 	private static final int RCO_MAGIC = 0x00505246;
 	private static final int RCO_NULL_PTR = 0xFFFFFFFF;
-	private static final int RCO_TABLE_MAIN = 1;
-	private static final int RCO_TABLE_VSMX = 2;
-	@SuppressWarnings("unused")
-	private static final int RCO_TABLE_TEXT = 3;
-	private static final int RCO_TABLE_IMG = 4;
-	private static final int RCO_TABLE_MODEL = 5;
-	private static final int RCO_TABLE_SOUND = 6;
-	@SuppressWarnings("unused")
-	private static final int RCO_TABLE_FONT = 7;
-	private static final int RCO_TABLE_OBJ = 8;
-	private static final int RCO_TABLE_ANIM = 9;
-	private static final int RCO_DATA_COMPRESSION_NONE = 0;
-	@SuppressWarnings("unused")
-	private static final int RCO_DATA_COMPRESSION_ZLIB = 1;
-	@SuppressWarnings("unused")
-	private static final int RCO_DATA_COMPRESSION_RLZ = 2;
+	public static final int RCO_TABLE_MAIN = 1;
+	public static final int RCO_TABLE_VSMX = 2;
+	public static final int RCO_TABLE_TEXT = 3;
+	public static final int RCO_TABLE_IMG = 4;
+	public static final int RCO_TABLE_MODEL = 5;
+	public static final int RCO_TABLE_SOUND = 6;
+	public static final int RCO_TABLE_FONT = 7;
+	public static final int RCO_TABLE_OBJ = 8;
+	public static final int RCO_TABLE_ANIM = 9;
+	public static final int RCO_DATA_COMPRESSION_NONE = 0;
+	public static final int RCO_DATA_COMPRESSION_ZLIB = 1;
+	public static final int RCO_DATA_COMPRESSION_RLZ = 2;
 	private byte[] buffer;
 	private int offset;
 	private boolean valid;
-	public byte[] VSMX;
 	private int pLabelData;
-	@SuppressWarnings("unused")
 	private int lLabelData;
 
-	private class RCOEntry {
+	public class RCOEntry {
 		private static final int RCO_ENTRY_SIZE = 40;
 		public int type; // main table uses 0x01; may be used as a current entry depth value
 		public int id;
@@ -103,6 +109,8 @@ public class RCO {
 						int lengthVSMX = read32();
 						skip(offsetVSMX);
 						data = readBytes(lengthVSMX);
+						// 4-bytes alignment
+						skip(Utilities.alignUp(lengthVSMX, 3) - lengthVSMX);
 					} else {
 						log.warn(String.format("Unknown RCO entry type 0x%X at offset 0x%X", type, entryOffset));
 					}
@@ -133,17 +141,22 @@ public class RCO {
 						int channels = read16(); // 1 or 2 channels
 						int sizeTotal = read32();
 						int offset = read32();
+						int[] channelSize = new int[channels];
+						int[] channelOffset = new int[channels];
 						// now pairs of size/offset for each channel
 						if (log.isDebugEnabled()) {
 							log.debug(String.format("RCO entry SOUND: format=%d, channels=%d, sizeTotal=0x%X, offset=0x%X", format, channels, sizeTotal, offset));
 						}
 						for (int channel = 0; channel < channels; channel++) {
-							int channelSize = read32();
-							int channelOffset = read32();
+							channelSize[channel] = read32();
+							channelOffset[channel] = read32();
 							if (log.isDebugEnabled()) {
-								log.debug(String.format("Channel %d: size=0x%X, offset=0x%X", channel, channelSize, channelOffset));
+								log.debug(String.format("Channel %d: size=0x%X, offset=0x%X", channel, channelSize[channel], channelOffset[channel]));
 							}
 						}
+
+						obj = SoundFactory.newSound(format, channels, channelSize, channelOffset);
+
 						// there _must_ be two channels defined (no clear indication of size otherwise)
 						if (channels < 2) {
 							for (int i = channels; i < 2; i++) {
@@ -186,7 +199,7 @@ public class RCO {
 					}
 					break;
 				case RCO_TABLE_ANIM:
-					if (type > 1) {
+					if (type > 0) {
 						obj = AnimFactory.newAnim(type);
 
 						if (obj != null && entrySize == 0) {
@@ -210,6 +223,39 @@ public class RCO {
 								}
 							}
 						}
+					}
+					break;
+				case RCO_TABLE_FONT:
+					if (type == 1) {
+						int format = read16();
+						int compression = read16();
+						int unknown1 = read32();
+						int unknown2 = read32();
+						if (log.isDebugEnabled()) {
+							log.debug(String.format("RCO entry FONT: format=%d, compression=%d, unknown1=0x%X, unknown2=0x%X", format, compression, unknown1, unknown2));
+						}
+					} else if (type != 0) {
+						log.warn(String.format("Unknown RCO FONT entry type 0x%X at offset 0x%X", type, entryOffset));
+					}
+					break;
+				case RCO_TABLE_TEXT:
+					if (type == 1) {
+						int lang = read16();
+						int format = read16();
+						int numIndexes = read32();
+						if (log.isDebugEnabled()) {
+							log.debug(String.format("RCO entry TEXT: lang=%d, format=%d, numIndexes=0x%X", lang, format, numIndexes));
+						}
+						for (int i = 0; i < numIndexes; i++) {
+							int labelOffset = read32();
+							int length = read32();
+							int offset = read32();
+							if (log.isDebugEnabled()) {
+								log.debug(String.format("RCO entry TEXT Index#%d: labelOffset=%d, length=%d, offset=0x%X", i, labelOffset, length, offset));
+							}
+						}
+					} else if (type != 0) {
+						log.warn(String.format("Unknown RCO TEXT entry type 0x%X at offset 0x%X", type, entryOffset));
 					}
 					break;
 				default:
@@ -285,10 +331,10 @@ public class RCO {
 		return offset;
 	}
 
-	public RCO(byte[] buffer) {
+	public RCO(byte[] buffer, String resourceName) {
 		this.buffer = buffer;
 
-		valid = read();
+		valid = read(resourceName);
 	}
 
 	public boolean isValid() {
@@ -329,15 +375,8 @@ public class RCO {
 		}
 
 		RCOEntry entry = readRCOEntry(offset);
-		int offsetVSMX = read32();
-		int lengthVSMX = read32();
-		skip(offsetVSMX);
 
-		if (log.isDebugEnabled()) {
-			log.debug(String.format("VSMX at 0x%X: entry=%s, offset=0x%X, length=0x%X", offset, entry, offsetVSMX, lengthVSMX));
-		}
-
-		return readBytes(lengthVSMX);
+		return entry.data;
 	}
 
 	private String readLabel(int labelOffset) {
@@ -345,7 +384,7 @@ public class RCO {
 
 		int currentPosition = tell();
 		seek(pLabelData + labelOffset);
-		while (true) {
+		for (int maxLength = lLabelData - labelOffset; maxLength > 0; maxLength--) {
 			int b = read8();
 			if (b == 0) {
 				break;
@@ -366,7 +405,7 @@ public class RCO {
 	 *         false RCO file is invalid
 	 */
 	@SuppressWarnings("unused")
-	private boolean read() {
+	private boolean read(String resourceName) {
 		int magic = endianSwap32(read32());
 		if (magic != RCO_MAGIC) {
 			log.warn(String.format("Invalid RCO magic 0x%08X", magic));
@@ -433,7 +472,18 @@ public class RCO {
 			log.debug(String.format("mainTable: %s", mainTable));
 		}
 
-		VSMX = readVSMX(pVSMXTable);
+		VSMX vsmx = new VSMX(readVSMX(pVSMXTable));
+		if (false) {
+			VSMXInterpreter interpreter = new VSMXInterpreter(vsmx);
+			Map<String, VSMXBaseObject> context = new HashMap<String, VSMXBaseObject>();
+			VSMXNativeObject controller = Controller.create(resourceName);
+			context.put(Controller.objectName, controller);
+			context.put(MoviePlayer.objectName, MoviePlayer.create());
+			context.put(Resource.objectName, Resource.create(mainTable));
+			interpreter.run(context);
+
+			controller.getObject().callCallback(interpreter, "onAutoPlay", null);
+		}
 
 		return true;
 	}

@@ -14,20 +14,27 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-package jpcsp.format.rco.object;
+package jpcsp.format.rco.vsmx;
 
-import jpcsp.format.RCO.RCOEntry;
-import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
-import jpcsp.format.rco.vsmx.interpreter.VSMXObject;
+public class VSMXGroup {
+	public static final int SIZE_OF = 8;
+	public int id;
+	public int value;
 
-public class GroupObject extends BasePositionObject {
+	public float getFloatValue() {
+		return Float.intBitsToFloat(value);
+	}
+
+	public int getOpcode() {
+		return id & 0xFF;
+	}
+
+	public boolean isOpcode(int opcode) {
+		return getOpcode() == opcode;
+	}
+
 	@Override
-	public VSMXBaseObject createVSMXObject(VSMXBaseObject parent, RCOEntry entry) {
-		VSMXBaseObject object = super.createVSMXObject(parent, entry);
-
-		VSMXObject children = new VSMXObject();
-		object.setPropertyValue("children", children);
-
-		return children;
+	public String toString() {
+		return String.format("%s(value=0x%X, id=0x%X)", VSMXCode.VsmxDecOps[getOpcode()], value, id);
 	}
 }

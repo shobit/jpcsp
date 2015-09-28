@@ -14,20 +14,30 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-package jpcsp.format.rco.object;
+package jpcsp.format.rco.vsmx.interpreter;
 
-import jpcsp.format.RCO.RCOEntry;
-import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
-import jpcsp.format.rco.vsmx.interpreter.VSMXObject;
+public class VSMXLocalVarReference extends VSMXReference {
+	private VSMXCallState callState;
+	private int index;
 
-public class GroupObject extends BasePositionObject {
+	public VSMXLocalVarReference(VSMXCallState callState, int index) {
+		super(null, null);
+		this.callState = callState;
+		this.index = index;
+	}
+
 	@Override
-	public VSMXBaseObject createVSMXObject(VSMXBaseObject parent, RCOEntry entry) {
-		VSMXBaseObject object = super.createVSMXObject(parent, entry);
+	protected VSMXBaseObject getRef() {
+		return callState.getLocalVar(index);
+	}
 
-		VSMXObject children = new VSMXObject();
-		object.setPropertyValue("children", children);
+	@Override
+	public void assign(VSMXBaseObject value) {
+		callState.setLocalVar(index, value);
+	}
 
-		return children;
+	@Override
+	public String toString() {
+		return String.format("LocalVar#%d", index);
 	}
 }

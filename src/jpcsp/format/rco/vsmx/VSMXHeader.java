@@ -14,20 +14,24 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-package jpcsp.format.rco.object;
+package jpcsp.format.rco.vsmx;
 
-import jpcsp.format.RCO.RCOEntry;
-import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
-import jpcsp.format.rco.vsmx.interpreter.VSMXObject;
+public class VSMXHeader {
+	public int sig;
+	public int ver;
+	public int codeOffset;
+	public int codeLength;
+	public int textOffset;
+	public int textLength;
+	public int textEntries;
+	public int propOffset;
+	public int propLength;
+	public int propEntries;
+	public int namesOffset;
+	public int namesLength;
+	public int namesEntries;
 
-public class GroupObject extends BasePositionObject {
-	@Override
-	public VSMXBaseObject createVSMXObject(VSMXBaseObject parent, RCOEntry entry) {
-		VSMXBaseObject object = super.createVSMXObject(parent, entry);
-
-		VSMXObject children = new VSMXObject();
-		object.setPropertyValue("children", children);
-
-		return children;
+	public int size() {
+		return 13 * 4;
 	}
 }
