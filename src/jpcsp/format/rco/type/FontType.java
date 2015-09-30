@@ -14,19 +14,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-package jpcsp.format.rco.vsmx.interpreter;
+package jpcsp.format.rco.type;
 
-import jpcsp.format.rco.vsmx.objects.BaseNativeObject;
-
-public class VSMXNativeObject extends VSMXObject {
-	private BaseNativeObject object;
-
-	public VSMXNativeObject(VSMXInterpreter interpreter, BaseNativeObject object) {
-		super(interpreter, null);
-		this.object = object;
-	}
-
-	public BaseNativeObject getObject() {
-		return object;
-	}
+public class FontType extends BaseReferenceType {
 }

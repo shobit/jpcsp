@@ -16,5 +16,5 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.format.rco.type;
 
-public class TextType extends BaseType {
+public class TextType extends BaseReferenceType {
 }

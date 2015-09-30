@@ -25,6 +25,7 @@ import jpcsp.HLE.modules.Kernel_Library;
 import jpcsp.HLE.modules.LoadCoreForKernel;
 import jpcsp.HLE.modules.LoadExecForKernel;
 import jpcsp.HLE.modules.LoadExecForUser;
+import jpcsp.HLE.modules.ModuleMgrForKernel;
 import jpcsp.HLE.modules.ModuleMgrForUser;
 import jpcsp.HLE.modules.StdioForKernel;
 import jpcsp.HLE.modules.StdioForUser;
@@ -80,6 +81,7 @@ import jpcsp.HLE.modules.scePower;
 import jpcsp.HLE.modules.scePsmf;
 import jpcsp.HLE.modules.scePsmfPlayer;
 import jpcsp.HLE.modules.scePspNpDrm_user;
+import jpcsp.HLE.modules.sceReg;
 import jpcsp.HLE.modules.sceRtc;
 import jpcsp.HLE.modules.sceSasCore;
 import jpcsp.HLE.modules.sceSfmt19937;
@@ -187,6 +189,8 @@ public class Modules {
     public static KUBridge KUBridgeModule = new KUBridge();
     public static SysclibForKernel SysclibForKernelModule = new SysclibForKernel();
     public static semaphore semaphoreModule = new semaphore();
+    public static ModuleMgrForKernel ModuleMgrForKernelModule = new ModuleMgrForKernel();
+    public static sceReg sceRegModule = new sceReg();
 
     public static Logger log = Logger.getLogger("hle");
 
