@@ -16,9 +16,27 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.format.rco.type;
 
+import java.awt.image.BufferedImage;
+
+import jpcsp.format.rco.RCOContext;
+import jpcsp.format.rco.object.BaseObject;
+import jpcsp.format.rco.object.BasePositionObject;
+
 public class BaseReferenceType extends BaseType {
-	public int unknownShort0;
-	public int unknownShort1;
+	protected static final int REFERENCE_TYPE_NONE = 0xFFFF;
+	protected static final int REFERENCE_TYPE_EVENT = 0x400;
+	protected static final int REFERENCE_TYPE_TEXT = 0x401;
+	protected static final int REFERENCE_TYPE_IMAGE = 0x402;
+	protected static final int REFERENCE_TYPE_MODEL = 0x403;
+	protected static final int REFERENCE_TYPE_FONT = 0x405;
+	protected static final int REFERENCE_TYPE_OBJECT = 0x407;
+	protected static final int REFERENCE_TYPE_ANIM = 0x408;
+	protected static final int REFERENCE_TYPE_POSITION_OBJECT = 0x409;
+	public int referenceType;
+	public int unknownShort;
+	protected String event;
+	protected BaseObject object;
+	protected BufferedImage image;
 
 	@Override
 	public int size() {
@@ -26,17 +44,86 @@ public class BaseReferenceType extends BaseType {
 	}
 
 	@Override
-	public int read(byte[] buffer, int offset) {
-		unknownShort0 = read16(buffer, offset);
-		offset += 2;
-		unknownShort1 = read16(buffer, offset);
-		offset += 2;
+	public void read(RCOContext context) {
+		referenceType = read16(context);
+		unknownShort = read16(context);
 
-		return super.read(buffer, offset);
+		super.read(context);
+	}
+
+	@Override
+	public void init(RCOContext context) {
+		switch (referenceType) {
+			case REFERENCE_TYPE_NONE:
+				break;
+			case REFERENCE_TYPE_EVENT:
+				event = context.events.get(value);
+				break;
+			case REFERENCE_TYPE_OBJECT:
+			case REFERENCE_TYPE_POSITION_OBJECT:
+			case REFERENCE_TYPE_ANIM:
+				object = context.objects.get(value);
+				break;
+			case REFERENCE_TYPE_IMAGE:
+				image = context.images.get(value);
+				break;
+			default:
+				log.warn(String.format("BaseReferenceType: unknown referenceType 0x%X(%s)", referenceType, getReferenceTypeString(referenceType)));
+				break;
+		}
+		super.init(context);
+	}
+
+	private static String getReferenceTypeString(int referenceType) {
+		switch (referenceType) {
+			case REFERENCE_TYPE_NONE: return "NONE";
+			case REFERENCE_TYPE_EVENT: return "EVENT";
+			case REFERENCE_TYPE_TEXT: return "TEXT";
+			case REFERENCE_TYPE_IMAGE: return "IMAGE";
+			case REFERENCE_TYPE_MODEL: return "MODEL";
+			case REFERENCE_TYPE_FONT: return "FONT";
+			case REFERENCE_TYPE_OBJECT: return "OBJECT";
+			case REFERENCE_TYPE_ANIM: return "ANIM";
+			case REFERENCE_TYPE_POSITION_OBJECT: return "POSITION_OBJECT";
+		}
+
+		return "UNKNOWN";
+	}
+
+	public String getEvent() {
+		return event;
+	}
+
+	public BaseObject getObject() {
+		return object;
+	}
+
+	public BasePositionObject getPositionObject() {
+		if (object instanceof BasePositionObject) {
+			return (BasePositionObject) object;
+		}
+
+		return null;
+	}
+
+	public BufferedImage getImage() {
+		return image;
 	}
 
 	@Override
 	public String toString() {
-		return String.format("short0=0x%X, short1=0x%X, value=0x%X", unknownShort0, unknownShort1, value);
+		StringBuilder s = new StringBuilder();
+		s.append(String.format("referenceType=0x%X(%s), short1=0x%X, value=0x%X", referenceType, getReferenceTypeString(referenceType), unknownShort, value));
+		if (event != null) {
+			s.append(String.format(", event='%s'", event));
+		}
+		if (object != null) {
+			s.append(String.format(", object='%s'", object.getName()));
+		}
+		if (image != null) {
+			s.append(String.format(", image=%dx%d", image.getWidth(), image.getHeight()));
+		}
+
+		return s.toString();
 	}
 }

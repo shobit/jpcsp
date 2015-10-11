@@ -16,7 +16,15 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.format.rco.object;
 
+import static java.lang.Math.round;
+
+import java.awt.geom.AffineTransform;
+import java.awt.image.AffineTransformOp;
+import java.awt.image.BufferedImage;
+
+import jpcsp.format.rco.IDisplay;
 import jpcsp.format.rco.ObjectField;
+import jpcsp.format.rco.anim.AbstractAnimAction;
 import jpcsp.format.rco.type.EventType;
 import jpcsp.format.rco.type.FloatType;
 import jpcsp.format.rco.type.IntType;
@@ -25,7 +33,7 @@ import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
 import jpcsp.format.rco.vsmx.interpreter.VSMXInterpreter;
 import jpcsp.format.rco.vsmx.interpreter.VSMXNumber;
 
-public class BasePositionObject extends BaseObject {
+public class BasePositionObject extends BaseObject implements IDisplay {
 	@ObjectField(order = 101)
 	public FloatType posX;
 	@ObjectField(order = 102)
@@ -57,6 +65,142 @@ public class BasePositionObject extends BaseObject {
 	@ObjectField(order = 115)
 	public EventType onInit;
 
+	public float rotateX;
+	public float rotateY;
+	public float rotateAngle;
+	public float animX;
+	public float animY;
+	public float animZ;
+
+	private class AnimRotateAction extends AbstractAnimAction {
+		private float angle;
+
+		public AnimRotateAction(float x, float y, float angle, int duration) {
+			super(duration);
+			rotateX = x;
+			rotateY = y;
+			this.angle = angle;
+		}
+
+		@Override
+		protected void anim(float step) {
+			rotateAngle = angle * step;
+			if (log.isDebugEnabled()) {
+				log.debug(String.format("AnimRotateAction to angle=%f", rotateAngle));
+			}
+		}
+	}
+
+	private class AnimPosAction extends AbstractAnimAction {
+		private float x;
+		private float y;
+		private float z;
+		private float startX;
+		private float startY;
+		private float startZ;
+
+		public AnimPosAction(float x, float y, float z, int duration) {
+			super(duration);
+			this.x = x;
+			this.y = y;
+			this.z = z;
+
+			startX = posX.getFloatValue();
+			startY = posY.getFloatValue();
+			startZ = posZ.getFloatValue();
+		}
+
+		@Override
+		protected void anim(float step) {
+			posX.setFloatValue(interpolate(startX, x, step));
+			posY.setFloatValue(interpolate(startY, y, step));
+			posZ.setFloatValue(interpolate(startZ, z, step));
+
+			if (log.isDebugEnabled()) {
+				log.debug(String.format("AnimPosAction from (%f,%f,%f) to (%f,%f,%f)", startX, startY, startZ, posX.getFloatValue(), posY.getFloatValue(), posZ.getFloatValue()));
+			}
+		}
+	}
+
+	private class AnimScaleAction extends AbstractAnimAction {
+		private float width;
+		private float height;
+		private float depth;
+		private float startWidth;
+		private float startHeight;
+		private float startDepth;
+
+		public AnimScaleAction(float width, float height, float depth, int duration) {
+			super(duration);
+			this.width = width;
+			this.height = height;
+			this.depth = depth;
+
+			startWidth = scaleWidth.getFloatValue();
+			startHeight = scaleHeight.getFloatValue();
+			startDepth = scaleDepth.getFloatValue();
+		}
+
+		@Override
+		protected void anim(float step) {
+			scaleWidth.setFloatValue(interpolate(startWidth, width, step));
+			scaleHeight.setFloatValue(interpolate(startHeight, height, step));
+			scaleDepth.setFloatValue(interpolate(startDepth, depth, step));
+
+			if (log.isDebugEnabled()) {
+				log.debug(String.format("AnimScaleAction scaling from (%f,%f,%f) to (%f,%f,%f)", startWidth, startHeight, startDepth, scaleWidth.getFloatValue(), scaleHeight.getFloatValue(), scaleDepth.getFloatValue()));
+			}
+		}
+	}
+
+	@Override
+	public int getWidth() {
+//		if (getImage() != null) {
+//			return Math.round(getImage().getWidth() * scaleWidth.getFloatValue());
+//		}
+		return Math.round(width.getFloatValue() * scaleWidth.getFloatValue());
+	}
+
+	@Override
+	public int getHeight() {
+//		if (getImage() != null) {
+//			return Math.round(getImage().getHeight() * scaleHeight.getFloatValue());
+//		}
+		return Math.round(height.getFloatValue() * scaleHeight.getFloatValue());
+	}
+
+	@Override
+	public BufferedImage getImage() {
+		return null;
+	}
+
+	@Override
+	public int getX() {
+		return posX.getIntValue() + round(animX);
+	}
+
+	@Override
+	public int getY() {
+		return posY.getIntValue() + round(animY);
+	}
+
+	@Override
+	public BufferedImage getAnimImage() {
+		BufferedImage image = getImage();
+		if (image == null || rotateAngle == 0f) {
+			return image;
+		}
+
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("Rotating image at (%f,%f) by %f", rotateX, rotateY, rotateAngle));
+		}
+		AffineTransform rotation = new AffineTransform();
+		rotation.rotate(-rotateAngle, rotateX + image.getWidth() / 2, rotateY + image.getHeight() / 2);
+		AffineTransformOp op = new AffineTransformOp(rotation, AffineTransformOp.TYPE_BILINEAR);
+
+		return op.filter(image, null);
+	}
+
 	public void setPos(VSMXBaseObject object, VSMXBaseObject posX, VSMXBaseObject posY) {
 		if (log.isDebugEnabled()) {
 			log.debug(String.format("setPos(%s, %s)", posX, posY));
@@ -74,10 +218,28 @@ public class BasePositionObject extends BaseObject {
 		this.posZ.setFloatValue(posZ.getFloatValue());
 	}
 
+	public VSMXBaseObject getPos(VSMXBaseObject object) {
+		VSMXInterpreter interpreter = object.getInterpreter();
+		VSMXArray pos = new VSMXArray(interpreter, 3);
+		pos.setPropertyValue(0, new VSMXNumber(interpreter, posX.getFloatValue()));
+		pos.setPropertyValue(1, new VSMXNumber(interpreter, posY.getFloatValue()));
+		pos.setPropertyValue(2, new VSMXNumber(interpreter, posZ.getFloatValue()));
+
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("getPos() returning %s", pos));
+		}
+
+		return pos;
+	}
+
 	public void setRotate(VSMXBaseObject object, VSMXBaseObject x, VSMXBaseObject y, VSMXBaseObject rotationRads) {
 		if (log.isDebugEnabled()) {
 			log.debug(String.format("setRotate(%s, %s, %s)", x, y, rotationRads));
 		}
+
+		rotateX = x.getFloatValue();
+		rotateY = y.getFloatValue();
+		rotateAngle = rotationRads.getFloatValue();
 	}
 
 	public VSMXBaseObject getColor(VSMXBaseObject object) {
@@ -122,5 +284,63 @@ public class BasePositionObject extends BaseObject {
 		if (log.isDebugEnabled()) {
 			log.debug(String.format("animScale(%s, %s, %s, %s)", width, height, depth, duration));
 		}
+
+		AnimScaleAction action = new AnimScaleAction(width.getFloatValue(), height.getFloatValue(), depth.getFloatValue(), duration.getIntValue());
+		getScheduler().addAction(action);
+	}
+
+	public void animPos(VSMXBaseObject object, VSMXBaseObject x, VSMXBaseObject y, VSMXBaseObject z, VSMXBaseObject duration) {
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("animPos from (%s,%s,%s) to (%s, %s, %s), duration=%s", posX, posY, posZ, x, y, z, duration));
+		}
+
+		AnimPosAction action = new AnimPosAction(x.getFloatValue(), y.getFloatValue(), z.getFloatValue(), duration.getIntValue());
+		getScheduler().addAction(action);
+	}
+
+	public void animRotate(VSMXBaseObject object, VSMXBaseObject x, VSMXBaseObject y, VSMXBaseObject rotationRads, VSMXBaseObject duration) {
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("animRotate(%s, %s, %s, %s)", x, y, rotationRads, duration));
+		}
+
+		AnimRotateAction action = new AnimRotateAction(x.getFloatValue(), y.getFloatValue(), rotationRads.getFloatValue(), duration.getIntValue());
+		getScheduler().addAction(action);
+	}
+
+	public void setFocus(VSMXBaseObject object) {
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("setFocus()"));
+		}
+		if (display != null) {
+			display.setFocus(getObject());
+		}
+		if (controller != null) {
+			controller.setFocus(this);
+		}
+	}
+
+	public void setSize(VSMXBaseObject object, VSMXBaseObject width, VSMXBaseObject height, VSMXBaseObject depth) {
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("setSize(%s, %s, %s)", width, height, depth));
+		}
+
+		this.width.setFloatValue(width.getFloatValue());
+		this.height.setFloatValue(height.getFloatValue());
+		this.depth.setFloatValue(depth.getFloatValue());
+	}
+
+	public void onUp() {
+	}
+
+	public void onDown() {
+	}
+
+	public void onLeft() {
+	}
+
+	public void onRight() {
+	}
+
+	public void onPush() {
 	}
 }

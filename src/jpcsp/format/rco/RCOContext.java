@@ -14,22 +14,25 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-package jpcsp.format.rco.anim;
+package jpcsp.format.rco;
 
-import jpcsp.format.rco.ObjectField;
-import jpcsp.format.rco.type.FloatType;
-import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
+import java.awt.image.BufferedImage;
+import java.util.Map;
 
-public class DelayAnim extends BaseAnim {
-	@ObjectField(order = 1)
-	public FloatType time;
+import jpcsp.format.rco.object.BaseObject;
 
-	@Override
-	protected long doPlay(VSMXBaseObject object) {
-		if (log.isDebugEnabled()) {
-			log.debug(String.format("DelayAnim %d", time.getIntValue()));
-		}
+public class RCOContext {
+	public byte[] buffer;
+	public int offset;
+	public Map<Integer, String> events;
+	public Map<Integer, BufferedImage> images;
+	public Map<Integer, BaseObject> objects;
 
-		return time.getIntValue();
+	public RCOContext(byte[] buffer, int offset, Map<Integer, String> events, Map<Integer, BufferedImage> images, Map<Integer, BaseObject> objects) {
+		this.buffer = buffer;
+		this.offset = offset;
+		this.events = events;
+		this.images = images;
+		this.objects = objects;
 	}
 }

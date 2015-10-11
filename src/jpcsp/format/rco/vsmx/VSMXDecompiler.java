@@ -113,7 +113,14 @@ public class VSMXDecompiler {
 	}
 
 	private boolean detectSwitch(StringBuilder s, int i) {
+		if (mem.codes[i + 1].isOpcode(VSMXCode.VID_DEBUG_LINE)) {
+			i++;
+		}
 		if (!mem.codes[i + 1].isOpcode(VSMXCode.VID_JUMP)) {
+			return false;
+		}
+
+		if (blockEnd.size() > 0 && blockEnd.peek().intValue() == i) {
 			return false;
 		}
 
@@ -153,6 +160,9 @@ public class VSMXDecompiler {
 			case SWITCH_STATE_VALUE:
 				op = new StringBuilder();
 				decompileOp(op);
+				if (mem.codes[i + 1].isOpcode(VSMXCode.VID_DEBUG_LINE)) {
+					i++;
+				}
 				if (mem.codes[i + 1].isOpcode(VSMXCode.VID_JUMP)) {
 					s.append(String.format("%scase %s:\n", prefix, op));
 					switchState = SWITCH_STATE_MULTI_VALUE;
@@ -194,6 +204,11 @@ public class VSMXDecompiler {
 		}
 
 		VSMXGroup prePrevCode = mem.codes[prev - 1];
+		if (prePrevCode.isOpcode(VSMXCode.VID_PROPERTY)) {
+			prev--;
+			prePrevCode = mem.codes[prev - 1];
+		}
+
 		if (!prePrevCode.isOpcode(VSMXCode.VID_VARIABLE)) {
 			return false;
 		}
@@ -291,6 +306,15 @@ public class VSMXDecompiler {
 				decompileOp(op2);
 				s.append(String.format("%s[%s]", op2, op1));
 				break;
+			case VSMXCode.VID_ARRAY_INDEX_KEEP_OBJ:
+				op1 = new StringBuilder();
+				decompileOp(op1);
+				i = stack.peek();
+				op2 = new StringBuilder();
+				decompileOp(op2);
+				stack.push(i);
+				s.append(String.format("%s[%s]", op2, op1));
+				break;
 			case VSMXCode.VID_CALL_NEW:
 				args = code.value;
 				ops = new StringBuilder[args];
@@ -386,6 +410,21 @@ public class VSMXDecompiler {
 			case VSMXCode.VID_OPERATOR_MOD:
 				operator2(s, " % ");
 				break;
+			case VSMXCode.VID_OPERATOR_B_XOR:
+				operator2(s, " ^ ");
+				break;
+			case VSMXCode.VID_INCREMENT:
+				operatorPost1(s, "++");
+				break;
+			case VSMXCode.VID_DECREMENT:
+				operatorPost1(s, "--");
+				break;
+			case VSMXCode.VID_P_INCREMENT:
+				operatorPre1(s, "++");
+				break;
+			case VSMXCode.VID_P_DECREMENT:
+				operatorPre1(s, "--");
+				break;
 			case VSMXCode.VID_ARRAY_PUSH:
 				op1 = new StringBuilder();
 				decompileOp(op1);
@@ -416,6 +455,14 @@ public class VSMXDecompiler {
 				op2 = new StringBuilder();
 				decompileOp(op2);
 				s.append(String.format("%s = %s", op2, op1));
+				break;
+			case VSMXCode.VID_STACK_COPY:
+				if (!stack.isEmpty()) {
+					i = stack.pop();
+					stack.push(i);
+					stack.push(i);
+					decompileOp(s);
+				}
 				break;
 			default:
 				log.warn(String.format("Line #%d: decompileOp(%s) unimplemented", i, VSMXCode.VsmxDecOps[opcode]));
@@ -528,6 +575,9 @@ public class VSMXDecompiler {
 				s.append(prefix);
 				operatorPre1(s, "--");
 				break;
+			case VSMXCode.VID_OPERATOR_EQUAL:
+				operator2(s, " == ");
+				break;
 			case VSMXCode.VID_JUMP:
 				if (code.value > i) {
 					increaseIndent(code.value);
@@ -535,6 +585,16 @@ public class VSMXDecompiler {
 					// Backward loop
 					s.append(String.format("%sgoto %d", prefix, code.value));
 				}
+				break;
+			case VSMXCode.VID_VARIABLE:
+				s.append(prefix);
+				s.append(mem.names[code.value]);
+				break;
+			case VSMXCode.VID_UNNAMED_VAR:
+				s.append(prefix);
+				s.append(String.format("var%d", code.value));
+				break;
+			case VSMXCode.VID_DEBUG_LINE:
 				break;
 			default:
 				log.warn(String.format("Line #%d: decompileStmt(%s) unimplemented", i, VSMXCode.VsmxDecOps[opcode]));

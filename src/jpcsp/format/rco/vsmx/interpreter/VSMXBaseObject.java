@@ -16,6 +16,9 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.format.rco.vsmx.interpreter;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import jpcsp.format.rco.vsmx.VSMX;
 
 import org.apache.log4j.Logger;
@@ -99,6 +102,10 @@ public abstract class VSMXBaseObject {
 		return !VSMXUndefined.singleton.equals(getPropertyValue(name));
 	}
 
+	public Set<String> getPropertyNames() {
+		return new HashSet<String>();
+	}
+
 	public void setFloatValue(float value) {
 	}
 
@@ -112,6 +119,10 @@ public abstract class VSMXBaseObject {
 			return null;
 		}
 
+		if (!interpreter.getGlobalVariables().hasPropertyValue(className)) {
+			return null;
+		}
+
 		VSMXBaseObject classObject = interpreter.getGlobalVariables().getPropertyValue(className).getPrototype();
 		if (!(classObject instanceof VSMXObject)) {
 			classObject = new VSMXObject(interpreter, className);
@@ -121,8 +132,20 @@ public abstract class VSMXBaseObject {
 		return (VSMXObject) classObject;
 	}
 
+	public VSMXBaseObject toString(VSMXBaseObject object) {
+		return new VSMXString(getInterpreter(), getStringValue());
+	}
+
+	public VSMXBaseObject toString(VSMXBaseObject object, VSMXBaseObject radix) {
+		String s = Integer.toString(getIntValue(), radix.getIntValue());
+		return new VSMXString(getInterpreter(), s);
+	}
+
 	@Override
 	public String toString() {
+		if (getFloatValue() == (float) getIntValue()) {
+			return Integer.toString(getIntValue());
+		}
 		return Float.toString(getFloatValue());
 	}
 }

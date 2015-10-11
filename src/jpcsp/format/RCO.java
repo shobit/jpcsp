@@ -18,13 +18,23 @@ package jpcsp.format;
 
 import static jpcsp.util.Utilities.endianSwap32;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.Charset;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.imageio.ImageIO;
 
 import org.apache.log4j.Logger;
 
+import jpcsp.GUI.UmdVideoPlayer;
 import jpcsp.format.rco.AnimFactory;
 import jpcsp.format.rco.LZR;
 import jpcsp.format.rco.ObjectFactory;
+import jpcsp.format.rco.RCOContext;
 import jpcsp.format.rco.SoundFactory;
 import jpcsp.format.rco.object.BaseObject;
 import jpcsp.format.rco.vsmx.VSMX;
@@ -57,11 +67,18 @@ public class RCO {
 	private byte[] buffer;
 	private int offset;
 	private boolean valid;
+	private int pVSMXTable;
 	private int pTextData;
 	private int lTextData;
 	private int pLabelData;
 	private int lLabelData;
+	private int pImgData;
+	private int lImgData;
+	private RCOEntry mainTable;
 	private int[] compressedTextDataOffset;
+	private Map<Integer, String> events;
+	private Map<Integer, BufferedImage> images;
+	private Map<Integer, BaseObject> objects;
 
 	public class RCOEntry {
 		private static final int RCO_ENTRY_SIZE = 40;
@@ -134,6 +151,14 @@ public class RCO {
 						} else {
 							sizeUnpacked = sizePacked;
 						}
+
+						if (id == RCO_TABLE_IMG) {
+							BufferedImage image = readImage(offset, sizePacked);
+							if (image != null) {
+								images.put(entryOffset, image);
+							}
+						}
+
 						if (log.isDebugEnabled()) {
 							log.debug(String.format("RCO entry %s: format=%d, compression=%d, sizePacked=0x%X, offset=0x%X, sizeUnpacked=0x%X", id == RCO_TABLE_IMG ? "IMG" : "MODEL", format, compression, sizePacked, offset, sizeUnpacked));
 						}
@@ -193,10 +218,14 @@ public class RCO {
 							}
 
 							if (obj != null) {
-								int readLength = obj.read(data, 0);
-								if (readLength != dataLength) {
+								RCOContext context = new RCOContext(data, 0, events, images, objects);
+								obj.read(context);
+								if (context.offset != dataLength) {
 									log.warn(String.format("Incorrect length data for ANIM"));
 								}
+
+								objects.put(entryOffset, obj);
+
 								if (log.isDebugEnabled()) {
 									log.debug(String.format("OBJ: %s", obj));
 								}
@@ -220,10 +249,14 @@ public class RCO {
 							}
 
 							if (obj != null) {
-								int readLength = obj.read(data, 0);
-								if (readLength != dataLength) {
+								RCOContext context = new RCOContext(data, 0, events, images, objects);
+								obj.read(context);
+								if (context.offset != dataLength) {
 									log.warn(String.format("Incorrect length data for ANIM"));
 								}
+
+								objects.put(entryOffset, obj);
+
 								if (log.isDebugEnabled()) {
 									log.debug(String.format("ANIM: %s", obj));
 								}
@@ -339,10 +372,10 @@ public class RCO {
 		return offset;
 	}
 
-	public RCO(byte[] buffer, String resourceName) {
+	public RCO(byte[] buffer) {
 		this.buffer = buffer;
 
-		valid = read(resourceName);
+		valid = read();
 	}
 
 	public boolean isValid() {
@@ -427,6 +460,37 @@ public class RCO {
 		return new String(buffer, 0, length, textDataCharset);
 	}
 
+	private BufferedImage readImage(int offset, int length) {
+		int currentPosition = tell();
+		seek(pImgData + offset);
+		byte[] buffer = readBytes(length);
+		seek(currentPosition);
+
+		InputStream imageInputStream = new ByteArrayInputStream(buffer);
+		BufferedImage bufferedImage = null;
+		try {
+			bufferedImage = ImageIO.read(imageInputStream);
+			imageInputStream.close();
+		} catch (IOException e) {
+			log.error(String.format("Error reading image from RCO at 0x%X, length=0x%X", offset, length), e);
+		}
+
+		return bufferedImage;
+	}
+
+	private String readString() {
+		StringBuilder s = new StringBuilder();
+		while (true) {
+			int b = read8();
+			if (b == 0) {
+				break;
+			}
+			s.append((char) b);
+		}
+
+		return s.toString();
+	}
+
 	private static byte[] append(byte[] a, byte[] b) {
 		if (a == null || a.length == 0) {
 			return b;
@@ -479,8 +543,7 @@ public class RCO {
 	 * @return true  RCO file is valid
 	 *         false RCO file is invalid
 	 */
-	@SuppressWarnings("unused")
-	private boolean read(String resourceName) {
+	private boolean read() {
 		int magic = endianSwap32(read32());
 		if (magic != RCO_MAGIC) {
 			log.warn(String.format("Invalid RCO magic 0x%08X", magic));
@@ -500,7 +563,7 @@ public class RCO {
 		}
 
 		int pMainTable = read32();
-		int pVSMXTable = read32();
+		pVSMXTable = read32();
 		int pTextTable = read32();
 		int pSoundTable = read32();
 		int pModelTable = read32();
@@ -527,8 +590,8 @@ public class RCO {
 		int lObjPtrs = read32();
 		int pAnimPtrs = read32();
 		int lAnimPtrs = read32();
-		int pImgData = read32();
-		int lImgData = read32();
+		pImgData = read32();
+		lImgData = read32();
 		int pSoundData = read32();
 		int lSoundData = read32();
 		int pModelData = read32();
@@ -606,27 +669,50 @@ public class RCO {
 			}
 		}
 
-		RCOEntry mainTable = readRCOEntry(pMainTable);
+		events = new HashMap<Integer, String>();
+		if (pEventData != RCO_NULL_PTR && lEventData > 0) {
+			seek(pEventData);
+			while (tell() < pEventData + lEventData) {
+				int index = tell() - pEventData;
+				String s = readString();
+				if (s != null && s.length() > 0) {
+					events.put(index, s);
+				}
+			}
+		}
+
+		images = new HashMap<Integer, BufferedImage>();
+		objects = new HashMap<Integer, BaseObject>();
+
+		mainTable = readRCOEntry(pMainTable);
 		if (log.isDebugEnabled()) {
 			log.debug(String.format("mainTable: %s", mainTable));
 		}
 
+		RCOContext context = new RCOContext(null, 0, events, images, objects);
+		for (BaseObject object : objects.values()) {
+			object.init(context);
+		}
+		return true;
+	}
+
+	public void execute(UmdVideoPlayer umdVideoPlayer, String resourceName) {
 		if (pVSMXTable != RCO_NULL_PTR) {
 			VSMX vsmx = new VSMX(readVSMX(pVSMXTable));
-			if (false) {
-				VSMXInterpreter interpreter = new VSMXInterpreter(vsmx);
-				VSMXNativeObject globalVariables = GlobalVariables.create(interpreter);
-				VSMXNativeObject controller = Controller.create(interpreter, resourceName);
-				globalVariables.setPropertyValue(Controller.objectName, controller);
-				globalVariables.setPropertyValue(MoviePlayer.objectName, MoviePlayer.create(interpreter));
-				globalVariables.setPropertyValue(Resource.objectName, Resource.create(interpreter, mainTable));
-				interpreter.run(globalVariables);
-	
-				controller.getObject().callCallback(interpreter, "onAutoPlay", null);
-			}
-		}
+			VSMXInterpreter interpreter = new VSMXInterpreter(vsmx);
+			VSMXNativeObject globalVariables = GlobalVariables.create(interpreter);
+			VSMXNativeObject controller = Controller.create(interpreter, resourceName);
+			globalVariables.setPropertyValue(Controller.objectName, controller);
+			globalVariables.setPropertyValue(MoviePlayer.objectName, MoviePlayer.create(interpreter, umdVideoPlayer, controller));
+			globalVariables.setPropertyValue(Resource.objectName, Resource.create(interpreter, umdVideoPlayer.getRCODisplay(), controller, mainTable));
+			globalVariables.setPropertyValue(jpcsp.format.rco.vsmx.objects.Math.objectName, jpcsp.format.rco.vsmx.objects.Math.create(interpreter));
+			interpreter.run(globalVariables);
 
-		return true;
+//			globalVariables.getObject().callCallback(interpreter, "initResource", null);
+//			globalVariables.getObject().callCallback(interpreter, "playIntro", null);
+			controller.getObject().callCallback(interpreter, "onAutoPlay", null);
+//			controller.getObject().callCallback(interpreter, "onMenu", null);
+		}
 	}
 
 	@Override

@@ -152,6 +152,15 @@ public class VSMXArray extends VSMXObject {
 	}
 
 	@Override
+	public boolean hasPropertyValue(String name) {
+		if (lengthName.equals(name)) {
+			return true;
+		}
+
+		return super.hasPropertyValue(name);
+	}
+
+	@Override
 	public boolean getBooleanValue() {
 		// "if" on an empty array seems to return false. E.g.
 		//     x = {};
@@ -167,5 +176,17 @@ public class VSMXArray extends VSMXObject {
 		s.append("]");
 
 		return s.toString();
+	}
+
+	@Override
+	public boolean equals(VSMXBaseObject value) {
+		if (value instanceof VSMXArray) {
+			// Empty arrays are always equal
+			if (getLength() == 0 && ((VSMXArray) value).getLength() == 0) {
+				return true;
+			}
+		}
+
+		return super.equals(value);
 	}
 }

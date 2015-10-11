@@ -16,6 +16,8 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.format.rco.object;
 
+import java.awt.image.BufferedImage;
+
 import jpcsp.format.rco.ObjectField;
 import jpcsp.format.rco.type.EventType;
 import jpcsp.format.rco.type.ImageType;
@@ -40,4 +42,34 @@ public class UButtonObject extends BasePositionObject {
 	public EventType onDown;
 	@ObjectField(order = 209)
 	public IntType unknownInt32;
+
+	@Override
+	public BufferedImage getImage() {
+		return image.getImage();
+	}
+
+	@Override
+	public void onUp() {
+		trigger(onUp);
+	}
+
+	@Override
+	public void onDown() {
+		trigger(onDown);
+	}
+
+	@Override
+	public void onLeft() {
+		trigger(onLeft);
+	}
+
+	@Override
+	public void onRight() {
+		trigger(onRight);
+	}
+
+	@Override
+	public void onPush() {
+		trigger(onPush);
+	}
 }

@@ -17,7 +17,19 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
 package jpcsp.GUI;
 
 import static jpcsp.HLE.modules.sceAudiocodec.PSP_CODEC_AT3PLUS;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_CIRCLE;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_CROSS;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_DOWN;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_LEFT;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_LTRIGGER;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_RIGHT;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_RTRIGGER;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_TRIANGLE;
+import static jpcsp.HLE.modules.sceCtrl.PSP_CTRL_UP;
+import static jpcsp.HLE.modules.sceMpeg.UNKNOWN_TIMESTAMP;
 import static jpcsp.HLE.modules.sceMpeg.mpegTimestampPerSecond;
+import static jpcsp.HLE.modules.sceUtility.PSP_SYSTEMPARAM_BUTTON_CROSS;
+import static jpcsp.HLE.modules.sceUtility.getSystemParamButtonPreference;
 import static jpcsp.format.psmf.PsmfAudioDemuxVirtualFile.PACK_START_CODE;
 import static jpcsp.format.psmf.PsmfAudioDemuxVirtualFile.PADDING_STREAM;
 import static jpcsp.format.psmf.PsmfAudioDemuxVirtualFile.PRIVATE_STREAM_1;
@@ -28,13 +40,11 @@ import static jpcsp.util.Utilities.endianSwap32;
 import static jpcsp.util.Utilities.sleep;
 
 import java.awt.BorderLayout;
-import java.awt.Dimension;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
 import java.awt.image.MemoryImageSource;
-import java.awt.Insets;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -51,6 +61,8 @@ import javax.sound.sampled.LineUnavailableException;
 import javax.sound.sampled.SourceDataLine;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.OverlayLayout;
 
 import org.apache.log4j.Logger;
 
@@ -61,6 +73,9 @@ import jpcsp.State;
 import jpcsp.filesystems.umdiso.UmdIsoFile;
 import jpcsp.filesystems.umdiso.UmdIsoReader;
 import jpcsp.format.RCO;
+import jpcsp.format.psmf.PesHeader;
+import jpcsp.format.rco.Display;
+import jpcsp.format.rco.vsmx.objects.MoviePlayer;
 import jpcsp.hardware.Screen;
 import jpcsp.media.codec.CodecFactory;
 import jpcsp.media.codec.ICodec;
@@ -93,6 +108,7 @@ public class UmdVideoPlayer implements KeyListener {
 
     // Display
     private JLabel display;
+    private Display rcoDisplay;
     private int screenWidth;
     private int screenHeigth;
     private Image image;
@@ -134,7 +150,9 @@ public class UmdVideoPlayer implements KeyListener {
 	private int audioBufferAddr = MemoryMap.START_USERSPACE + 0x10000;
 	private byte[] audioBytes;
 	// Time synchronization
-	private int pesHeaderChannel;
+	private PesHeader pesHeaderAudio;
+	private PesHeader pesHeaderVideo;
+	private int currentChapterNumber;
 	private long startTime;
     private int fastForwardSpeed;
     private int fastRewindSpeed;
@@ -151,6 +169,9 @@ public class UmdVideoPlayer implements KeyListener {
     private MpsDisplayThread displayThread;
     private SourceDataLine mLine;
 
+    // RCO MoviePlayer
+    private MoviePlayer moviePlayer;
+
     // MPS stream class.
     protected class MpsStreamInfo {
         private String streamName;
@@ -159,14 +180,16 @@ public class UmdVideoPlayer implements KeyListener {
         private int streamFirstTimestamp;
         private int streamLastTimestamp;
         private MpsStreamMarkerInfo[] streamMarkers;
+        private int playListNumber;
 
-        public MpsStreamInfo(String name, int width, int heigth, int firstTimestamp, int lastTimestamp, MpsStreamMarkerInfo[] markers) {
+        public MpsStreamInfo(String name, int width, int heigth, int firstTimestamp, int lastTimestamp, MpsStreamMarkerInfo[] markers, int playListNumber) {
             streamName = name;
             streamWidth = width;
             streamHeigth = heigth;
             streamFirstTimestamp = firstTimestamp;
             streamLastTimestamp = lastTimestamp;
             streamMarkers = markers;
+            this.playListNumber = playListNumber;
         }
 
         public String getName() {
@@ -193,7 +216,26 @@ public class UmdVideoPlayer implements KeyListener {
             return streamMarkers;
         }
 
-		@Override
+        public int getPlayListNumber() {
+        	return playListNumber;
+        }
+
+        public int getChapterNumber(long timestamp) {
+        	int marker = -1;
+        	if (streamMarkers != null) {
+        		for (int i = 0; i < streamMarkers.length; i++) {
+	        		if (streamMarkers[i].getTimestamp() <= timestamp) {
+	        			marker = i;
+	        		} else {
+	        			break;
+	        		}
+	        	}
+        	}
+
+        	return marker;
+        }
+
+        @Override
 		public String toString() {
 			StringBuilder s = new StringBuilder();
 			s.append(String.format("name='%s', %dx%d, %s(%d to %d), markers=[", getName(), getWidth(), getHeigth(), getTimestampString(getLastTimestamp() - getFirstTimestamp()), getFirstTimestamp(), getLastTimestamp()));
@@ -212,9 +254,9 @@ public class UmdVideoPlayer implements KeyListener {
     // MPS stream's marker class.
     protected class MpsStreamMarkerInfo {
         private String streamMarkerName;
-        private int streamMarkerTimestamp;
+        private long streamMarkerTimestamp;
 
-        public MpsStreamMarkerInfo(String name, int timestamp) {
+        public MpsStreamMarkerInfo(String name, long timestamp) {
             streamMarkerName = name;
             streamMarkerTimestamp = timestamp;
         }
@@ -223,7 +265,7 @@ public class UmdVideoPlayer implements KeyListener {
             return streamMarkerName;
         }
 
-        public int getTimestamp() {
+        public long getTimestamp() {
             return streamMarkerTimestamp;
         }
 
@@ -233,8 +275,8 @@ public class UmdVideoPlayer implements KeyListener {
 		}
     }
 
-    private static String getTimestampString(int timestamp) {
-    	int seconds = timestamp / mpegTimestampPerSecond;
+    private static String getTimestampString(long timestamp) {
+    	int seconds = (int) (timestamp / mpegTimestampPerSecond);
     	int minutes = seconds / 60;
     	seconds -= minutes * 60;
     	int hours = minutes / 60;
@@ -251,8 +293,13 @@ public class UmdVideoPlayer implements KeyListener {
         this.iso = iso;
 
         display = new JLabel();
+        rcoDisplay = new Display();
+        JPanel panel = new JPanel();
+        panel.setLayout(new OverlayLayout(panel));
+        panel.add(rcoDisplay);
+        panel.add(display);
         gui.remove(Modules.sceDisplayModule.getCanvas());
-        gui.getContentPane().add(display, BorderLayout.CENTER);
+        gui.getContentPane().add(panel, BorderLayout.CENTER);
         gui.addKeyListener(this);
         setVideoPlayerResizeScaleFactor(gui, 1);
 
@@ -260,26 +307,67 @@ public class UmdVideoPlayer implements KeyListener {
     }
 
     @Override
-    public void keyPressed(KeyEvent keyCode) {
-        if (keyCode.getKeyCode() == KeyEvent.VK_RIGHT) {
-            stopDisplayThread();
-            goToNextMpsStream();
-        } else if (keyCode.getKeyCode() == KeyEvent.VK_LEFT && currentStreamIndex > 0) {
-            stopDisplayThread();
-            goToPreviousMpsStream();
-        } else if (keyCode.getKeyCode() == KeyEvent.VK_W && !videoPaused) {
-            pauseVideo();
-        } else if (keyCode.getKeyCode() == KeyEvent.VK_S) {
-            resumeVideo();
-        } else if (keyCode.getKeyCode() == KeyEvent.VK_A) {
-            rewind();
-        } else if (keyCode.getKeyCode() == KeyEvent.VK_D) {
-            fastForward();
-        }
+    public void keyPressed(KeyEvent event) {
+    	State.controller.keyPressed(event);
+
+    	if (moviePlayer != null) {
+	    	if ((State.controller.getButtons() & PSP_CTRL_UP) != 0) {
+    			moviePlayer.onUp();
+	    	}
+	    	if ((State.controller.getButtons() & PSP_CTRL_DOWN) != 0) {
+    			moviePlayer.onDown();
+	    	}
+	    	if ((State.controller.getButtons() & PSP_CTRL_LEFT) != 0) {
+    			moviePlayer.onLeft();
+	    	}
+	    	if ((State.controller.getButtons() & PSP_CTRL_RIGHT) != 0) {
+    			moviePlayer.onRight();
+	    	}
+	    	int pushButton = getSystemParamButtonPreference() == PSP_SYSTEMPARAM_BUTTON_CROSS ? PSP_CTRL_CROSS : PSP_CTRL_CIRCLE;
+	    	if ((State.controller.getButtons() & pushButton) != 0) {
+    			moviePlayer.onPush();
+	    	}
+
+	    	// TODO Non-standard key mappings...
+	    	if ((State.controller.getButtons() & PSP_CTRL_RTRIGGER) != 0) {
+	            fastForward();
+	    	}
+	    	if ((State.controller.getButtons() & PSP_CTRL_LTRIGGER) != 0) {
+	            rewind();
+	    	}
+	    	if ((State.controller.getButtons() & PSP_CTRL_TRIANGLE) != 0) {
+	            resumeVideo();
+	    	}
+    	} else {
+	    	if (event.getKeyCode() == KeyEvent.VK_RIGHT) {
+	            stopDisplayThread();
+	            goToNextMpsStream();
+	        } else if (event.getKeyCode() == KeyEvent.VK_LEFT && currentStreamIndex > 0) {
+	            stopDisplayThread();
+	            goToPreviousMpsStream();
+	        } else if (event.getKeyCode() == KeyEvent.VK_W && !videoPaused) {
+	            pauseVideo();
+	        } else if (event.getKeyCode() == KeyEvent.VK_S) {
+	            resumeVideo();
+	        } else if (event.getKeyCode() == KeyEvent.VK_A) {
+	            rewind();
+	        } else if (event.getKeyCode() == KeyEvent.VK_D) {
+	            fastForward();
+	        } else if (event.getKeyCode() == KeyEvent.VK_UP) {
+	        	if (moviePlayer != null) {
+	        		moviePlayer.onUp();
+	        	}
+	        } else if (event.getKeyCode() == KeyEvent.VK_DOWN) {
+	        	if (moviePlayer != null) {
+	        		moviePlayer.onDown();
+	        	}
+	        }
+    	}
     }
 
     @Override
-    public void keyReleased(KeyEvent keyCode) {
+    public void keyReleased(KeyEvent event) {
+        State.controller.keyReleased(event);
     }
 
     @Override
@@ -287,34 +375,20 @@ public class UmdVideoPlayer implements KeyListener {
     }
 
     private void init() {
-        done = false;
+    	Emulator.getScheduler().reset();
+    	Emulator.getClock().resume();
+
+    	done = false;
         threadExit = false;
         isoFile = null;
         mpsStreams = new LinkedList<UmdVideoPlayer.MpsStreamInfo>();
+        pauseVideo();
         currentStreamIndex = 0;
         parsePlaylistFile();
         parseRCO();
-        log.info("Setting aspect ratio to 16:9");
-        if (currentStreamIndex < mpsStreams.size()) {
-            MpsStreamInfo info = mpsStreams.get(currentStreamIndex);
-            fileName = "UMD_VIDEO/STREAM/" + info.getName() + ".MPS";
-            log.info("Loading stream: " + fileName);
-            try {
-                isoFile = iso.getFile(fileName);
-                // Look for valid CLIPINF files (contain the ripped off PSMF header from the
-                // MPS streams).
-                String cpiFileName = "UMD_VIDEO/CLIPINF/" + info.getName() + ".CLP";
-                UmdIsoFile cpiFile = iso.getFile(cpiFileName);
-                if (cpiFile != null) {
-                    log.info("Found CLIPINF data for this stream: " + cpiFileName);
-                }
-            } catch (FileNotFoundException e) {
-            } catch (IOException e) {
-                Emulator.log.error(e);
-            }
-        }
-        if (isoFile != null) {
-            startVideo();
+
+        if (videoPaused) {
+        	goToMpsStream(currentStreamIndex);
         }
     }
 
@@ -330,15 +404,14 @@ public class UmdVideoPlayer implements KeyListener {
 	        screenWidth = Screen.width * resizeScaleFactor;
 	        screenHeigth = Screen.height * resizeScaleFactor;
     	} else {
+    		if (log.isDebugEnabled()) {
+    			log.debug(String.format("video size %dx%d", videoWidth, videoHeight));
+    		}
 	        screenWidth = videoWidth * resizeScaleFactor;
 	        screenHeigth = videoHeight * resizeScaleFactor;
     	}
 
-    	Insets insets = gui.getInsets();
-        Dimension minSize = new Dimension(
-                screenWidth + insets.left + insets.right,
-                screenHeigth + insets.top + insets.bottom);
-        gui.setMinimumSize(minSize);
+        gui.setDisplayMinimumSize(screenWidth, screenHeigth);
     }
 
     private int readByteHexTo10(UmdIsoFile file) throws IOException {
@@ -370,7 +443,7 @@ public class UmdVideoPlayer implements KeyListener {
                 file.skipBytes(2);   // 0x0332.
                 file.skipBytes(30);  // NULL.
                 file.skipBytes(2);   // 0x02E8.
-                file.skipBytes(2);   // 0x0000/0x1000.
+                int unknown = endianSwap16(file.readShort());
                 int releaseDateYear = readByteHexTo10(file) * 100 + readByteHexTo10(file);
                 int releaseDateDay = file.readByte();
                 int releaseDateMonth = file.readByte();
@@ -406,7 +479,7 @@ public class UmdVideoPlayer implements KeyListener {
 	                    file.skipBytes(1); // 0x05.
 	                    int streamMarkerCharsNum = (int) file.readByte(); // Marker name length.
 	                    file.skipBytes(4); // NULL.
-	                    int streamMarkerTimestamp = endianSwap32(file.readInt());
+	                    long streamMarkerTimestamp = endianSwap32(file.readInt()) & 0xFFFFFFFFL;
 	                    file.skipBytes(2); // NULL.
 	                    file.skipBytes(4); // NULL.
 	                    byte[] markerBuf = new byte[streamMarkerCharsNum];
@@ -420,9 +493,9 @@ public class UmdVideoPlayer implements KeyListener {
                 	streamMarkers = new MpsStreamMarkerInfo[0];
                 }
                 // Map this stream.
-                MpsStreamInfo info = new MpsStreamInfo(streamName, streamWidth, streamHeight, streamFirstTimestamp, streamLastTimestamp, streamMarkers);
+                MpsStreamInfo info = new MpsStreamInfo(streamName, streamWidth, streamHeight, streamFirstTimestamp, streamLastTimestamp, streamMarkers, i + 1);
                 if (log.isDebugEnabled()) {
-                	log.debug(String.format("Release date %d-%d-%d, name '%s'", releaseDateYear, releaseDateMonth, releaseDateDay, name));
+                	log.debug(String.format("Release date %d-%d-%d, name '%s', unknown=0x%04X", releaseDateYear, releaseDateMonth, releaseDateDay, name, unknown));
                 	log.debug(String.format("StreamInfo #%d: %s", i, info));
                 }
                 mpsStreams.add(info);
@@ -476,10 +549,12 @@ public class UmdVideoPlayer implements KeyListener {
 				UmdIsoFile file = iso.getFile("UMD_VIDEO/RESOURCE/" + resourceFileName);
 				byte[] buffer = new byte[(int) file.length()];
 				file.read(buffer);
-				RCO rco = new RCO(buffer, resourceFileName.replace(".RCO", ""));
+				RCO rco = new RCO(buffer);
 				if (log.isDebugEnabled()) {
 					log.debug(String.format("RCO: %s", rco));
 				}
+
+				rco.execute(this, resourceFileName.replace(".RCO", ""));
     		}
 		} catch (FileNotFoundException e) {
 		} catch (IOException e) {
@@ -488,12 +563,33 @@ public class UmdVideoPlayer implements KeyListener {
         
     }
 
-    private boolean goToNextMpsStream() {
-    	if (currentStreamIndex + 1 >= mpsStreams.size()) {
+    private int getStreamIndexFromPlayListNumber(int playListNumber) {
+    	for (int i = 0; i < mpsStreams.size(); i++) {
+    		MpsStreamInfo info = mpsStreams.get(i);
+    		if (info.getPlayListNumber() == playListNumber) {
+    			return i;
+    		}
+    	}
+
+    	return playListNumber;
+    }
+
+    public void setMoviePlayer(MoviePlayer moviePlayer) {
+    	this.moviePlayer = moviePlayer;
+    }
+
+    public void play(int playListNumber, int chapterNumber, int videoNumber, int audioNumber, int audioFlag, int subtitleNumber, int subtitleFlag) {
+    	done = false;
+    	int streamIndex = getStreamIndexFromPlayListNumber(playListNumber);
+    	goToMpsStream(streamIndex);
+    }
+
+    private boolean goToMpsStream(int streamIndex) {
+    	if (streamIndex < 0 || streamIndex >= mpsStreams.size()) {
     		return false;
     	}
 
-    	currentStreamIndex++;
+    	currentStreamIndex = streamIndex;
         MpsStreamInfo info = mpsStreams.get(currentStreamIndex);
         fileName = "UMD_VIDEO/STREAM/" + info.getName() + ".MPS";
         log.info("Loading stream: " + fileName);
@@ -517,33 +613,12 @@ public class UmdVideoPlayer implements KeyListener {
         return true;
     }
 
+    private boolean goToNextMpsStream() {
+    	return goToMpsStream(currentStreamIndex + 1);
+    }
+
     private boolean goToPreviousMpsStream() {
-    	if (currentStreamIndex <= 0) {
-    		return false;
-    	}
-
-    	currentStreamIndex--;
-        MpsStreamInfo info = mpsStreams.get(currentStreamIndex);
-        fileName = "UMD_VIDEO/STREAM/" + info.getName() + ".MPS";
-        log.info("Loading stream: " + fileName);
-        try {
-            isoFile = iso.getFile(fileName);
-            String cpiFileName = "UMD_VIDEO/CLIPINF/" + info.getName() + ".CLP";
-            UmdIsoFile cpiFile = iso.getFile(cpiFileName);
-            if (cpiFile != null) {
-                log.info("Found CLIPINF data for this stream: " + cpiFileName);
-            }
-        } catch (FileNotFoundException e) {
-        } catch (IOException e) {
-            Emulator.log.error(e);
-        }
-
-        if (isoFile != null) {
-            startVideo();
-            initVideo();
-        }
-
-        return true;
+    	return goToMpsStream(currentStreamIndex - 1);
     }
 
     public void initVideo() {
@@ -622,7 +697,15 @@ public class UmdVideoPlayer implements KeyListener {
 		}
 	}
 
-	private int skipPesHeader(int startCode) {
+	private long readPts(int c) {
+		return (((long) (c & 0x0E)) << 29) | ((read16() >> 1) << 15) | (read16() >> 1);
+	}
+
+	private long readPts() {
+		return readPts(read8());
+	}
+
+	private int readPesHeader(int startCode, PesHeader pesHeader) {
 		int pesLength = 0;
 		int c = read8();
 		pesLength++;
@@ -637,24 +720,58 @@ public class UmdVideoPlayer implements KeyListener {
 			pesLength += 2;
 		}
 
+		pesHeader.setDtsPts(UNKNOWN_TIMESTAMP);
 		if ((c & 0xE0) == 0x20) {
-			skip(4);
+			pesHeader.setDtsPts(readPts(c));
 			pesLength += 4;
 			if ((c & 0x10) != 0) {
-				skip(5);
+				pesHeader.setPts(readPts());
 				pesLength += 5;
 			}
 		} else if ((c & 0xC0) == 0x80) {
-			skip(1);
+			int flags = read8();
 			int headerLength = read8();
 			pesLength += 2;
-			skip(headerLength);
 			pesLength += headerLength;
+			if ((flags & 0x80) != 0) {
+				pesHeader.setDtsPts(readPts());
+				headerLength -= 5;
+				if ((flags & 0x40) != 0) {
+					pesHeader.setDts(readPts());
+					headerLength -= 5;
+				}
+			}
+			if ((flags & 0x3F) != 0 && headerLength == 0) {
+				flags &= 0xC0;
+			}
+			if ((flags & 0x01) != 0) {
+				int pesExt = read8();
+				headerLength--;
+				int skip = (pesExt >> 4) & 0x0B;
+				skip += skip & 0x09;
+				if ((pesExt & 0x40) != 0 || skip > headerLength) {
+					pesExt = skip = 0;
+				}
+				skip(skip);
+				headerLength -= skip;
+				if ((pesExt & 0x01) != 0) {
+					int ext2Length = read8();
+					headerLength--;
+					 if ((ext2Length & 0x7F) != 0) {
+						 int idExt = read8();
+						 headerLength--;
+						 if ((idExt & 0x80) == 0) {
+							 startCode = ((startCode & 0xFF) << 8) | idExt;
+						 }
+					 }
+				}
+			}
+			skip(headerLength);
 		}
 
 		if (startCode == 0x1BD) { // PRIVATE_STREAM_1
 			int channel = read8();
-			pesHeaderChannel = channel;
+			pesHeader.setChannel(channel);
 			pesLength++;
 			if (channel >= 0x80 && channel <= 0xCF) {
 				skip(3);
@@ -788,10 +905,9 @@ public class UmdVideoPlayer implements KeyListener {
 					break;
 				case PRIVATE_STREAM_1: // Audio stream
 					codeLength = read16();
-					pesHeaderChannel = audioChannel;
-					pesLength = skipPesHeader(startCode);
+					pesLength = readPesHeader(startCode, pesHeaderAudio);
 					codeLength -= pesLength;
-					if (pesHeaderChannel == audioChannel || audioChannel < 0) {
+					if (pesHeaderAudio.getChannel() == audioChannel || audioChannel < 0) {
 						addAudioData(codeLength);
 						return true;
 					}
@@ -803,7 +919,7 @@ public class UmdVideoPlayer implements KeyListener {
 				case 0x1EC: case 0x1ED: case 0x1EE: case 0x1EF:
 					codeLength = read16();
 					if (videoChannel < 0 || startCode - 0x1E0 == videoChannel) {
-						pesLength = skipPesHeader(startCode);
+						pesLength = readPesHeader(startCode, pesHeaderVideo);
 						codeLength -= pesLength;
 						addVideoData(codeLength, getCurrentFilePosition());
 						return true;
@@ -951,8 +1067,12 @@ public class UmdVideoPlayer implements KeyListener {
         frameHeaderLength = 0;
         foundFrameStart = false;
 
+        pesHeaderAudio = new PesHeader(audioChannel);
+        pesHeaderVideo = new PesHeader(videoChannel);
+
         startTime = System.currentTimeMillis();
         frame = 0;
+        currentChapterNumber = -1;
 
         return true;
     }
@@ -1005,6 +1125,9 @@ public class UmdVideoPlayer implements KeyListener {
     }
 
     public void stepVideo() {
+    	Emulator.getScheduler().step();
+    	State.controller.hleControllerPoll();
+
     	image = null;
 
     	int frameSize = -1;
@@ -1107,6 +1230,17 @@ public class UmdVideoPlayer implements KeyListener {
 	    	}
 	    }
 
+	    if (pesHeaderVideo.getPts() != UNKNOWN_TIMESTAMP) {
+		    int chapterNumber = mpsStreams.get(currentStreamIndex).getChapterNumber(pesHeaderVideo.getPts());
+		    if (chapterNumber != currentChapterNumber) {
+		    	if (moviePlayer != null) {
+		    		// For the MoviePlayer, chapters are numbered starting from 1
+		    		moviePlayer.onChapter(chapterNumber + 1);
+		    	}
+		    	currentChapterNumber = chapterNumber;
+		    }
+	    }
+
 	    if (audioFrameLength > 0 && audioDataOffset >= audioFrameLength) {
 	    	if (!audioCodecInitialized) {
 	    		audioCodec.init(audioFrameLength, audioChannels, audioChannels, 0);
@@ -1179,6 +1313,10 @@ public class UmdVideoPlayer implements KeyListener {
         return image;
     }
 
+    public Display getRCODisplay() {
+    	return rcoDisplay;
+    }
+
     private class MpsDisplayThread extends Thread {
 
         @Override
@@ -1205,11 +1343,16 @@ public class UmdVideoPlayer implements KeyListener {
                     }
                 }
                 if (!done) {
-                    if (log.isTraceEnabled()) {
-                    	log.trace(String.format("Switching to next stream"));
-                    }
-                	if (!goToNextMpsStream()) {
+                	if (moviePlayer != null) {
                 		done = true;
+                		moviePlayer.onPlayListEnd(mpsStreams.get(currentStreamIndex).getPlayListNumber());
+                	} else {
+	                    if (log.isTraceEnabled()) {
+	                    	log.trace(String.format("Switching to next stream"));
+	                    }
+	                	if (!goToNextMpsStream()) {
+	                		done = true;
+	                	}
                 	}
                 }
             }
