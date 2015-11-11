@@ -13,18 +13,15 @@ Settings.properties
 lib/windows-x86/software-ge-renderer*.dll
 lib/windows-amd64/software-ge-renderer*.dll
 #Virtual memory stick
-ms0/
+ms0/PSP/SAVEDATA
 #UMD images
 umdimages/
-<<<<<<< HEAD
 DecodeAudio.bat
 HIMDRENDER.exe
 tmp/
-=======
 #7-Zip binaries
 7-zip.dll
 7z.dll
 7z.exe
 7zFM.exe
 7zG.exe
->>>>>>> jpcsp/master
