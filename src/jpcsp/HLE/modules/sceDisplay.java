@@ -1114,8 +1114,8 @@ public class sceDisplay extends HLEModule {
         }
     }
 
-    public final void write(int address) {
-        if (fb.isAddressInside(address)) {
+    public final void write(int rawAddress) {
+        if (fb.isAddressInside(rawAddress)) {
             displayDirty = true;
         }
     }

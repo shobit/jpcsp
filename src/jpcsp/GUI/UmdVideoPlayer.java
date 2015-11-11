@@ -537,16 +537,19 @@ public class UmdVideoPlayer implements KeyListener {
     			case sceUtility.PSP_SYSTEMPARAM_LANGUAGE_CHINESE_SIMPLIFIED: languagePrefix = "CN"; break;
     		}
 
+    		// The resource names are tried in this order:
+    		final String resourceNames[] = new String[] {
+    				"100000",
+    				"000000",
+    				"110000",
+    				"010000"
+    		};
     		String resourceFileName = null;
-    		for (String resource : resources) {
-    			resource = resource.toUpperCase();
-    			if (resource.endsWith(".RCO")) {
-        			if (resource.startsWith(languagePrefix)) {
-        				resourceFileName = resource;
-        				break;
-        			} else if (resourceFileName == null) {
-        				resourceFileName = resource;
-        			}
+    		for (String resourceName : resourceNames) {
+    			String fileName = languagePrefix + resourceName + ".RCO";
+    			if (iso.hasFile("UMD_VIDEO/RESOURCE/" + fileName)) {
+    				resourceFileName = fileName;
+    				break;
     			}
     		}
 
@@ -574,6 +577,9 @@ public class UmdVideoPlayer implements KeyListener {
     public void changeResource(String resourceName) {
     	try {
 			UmdIsoFile file = iso.getFile(String.format("UMD_VIDEO/RESOURCE/%s.RCO", resourceName));
+	    	if (log.isDebugEnabled()) {
+	    		log.debug(String.format("Reading RCO file '%s.RCO'", resourceName));
+	    	}
 			byte[] buffer = new byte[(int) file.length()];
 			file.read(buffer);
 			RCO rco = new RCO(buffer);

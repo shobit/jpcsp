@@ -85,6 +85,7 @@ import jpcsp.HLE.kernel.types.SceKernelMppInfo;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
 import jpcsp.HLE.kernel.types.ScePspDateTime;
 import jpcsp.HLE.kernel.types.ThreadWaitInfo;
+import jpcsp.HLE.kernel.types.pspIoDrv;
 import jpcsp.filesystems.SeekableDataInput;
 import jpcsp.filesystems.SeekableRandomFile;
 import jpcsp.filesystems.umdiso.UmdIsoFile;
@@ -1314,9 +1315,10 @@ public class IoFileMgrForUser extends HLEModule {
             	stackSize = 0x800;
             }
 
+            // The stack of the async thread is always allocated in the kernel partition
             info.asyncThread = threadMan.hleKernelCreateThread("SceIofileAsync",
                     ThreadManForUser.ASYNC_LOOP_ADDRESS, asyncPriority, stackSize,
-                    threadMan.getCurrentThread().attr, 0, SysMemUserForUser.USER_PARTITION_ID);
+                    threadMan.getCurrentThread().attr, 0, SysMemUserForUser.KERNEL_PARTITION_ID);
 
             if (info.asyncThread.getStackAddr() == 0) {
         		log.warn(String.format("Cannot start the Async IO thread, not enough memory to create its stack"));
@@ -2316,6 +2318,20 @@ public class IoFileMgrForUser extends HLEModule {
                     }
                     break;
                 }
+                // UMD file ahead (from info listed in the log file of "The Legend of Heroes: Trails in the Sky SC")
+                case 0x0101000A: {
+                    if (Memory.isAddressGood(indata_addr) && inlen >= 4) {
+                    	int length = mem.read32(indata_addr);
+                    	if (log.isInfoEnabled()) {
+                    		log.info(String.format("hleIoIoctl cmd=0x%08X length=0x%X", cmd, length));
+                    	}
+                    	result = 0;
+                    } else {
+                        log.warn(String.format("hleIoIoctl cmd=0x%08X 0x%08X %d unsupported parameters", cmd, indata_addr, inlen));
+                        result = ERROR_INVALID_ARGUMENT;
+                    }
+                    break;
+                }
 	            // Get UMD Primary Volume Descriptor
 	            case 0x01020001: {
 	                if (Memory.isAddressGood(outdata_addr) && outlen == UmdIsoFile.sectorLength) {
@@ -3059,7 +3075,13 @@ public class IoFileMgrForUser extends HLEModule {
                 }
                 File f = new File(pcfilename);
                 if (f.isDirectory()) {
-                    IoDirInfo info = new IoDirInfo(pcfilename, f.list());
+                	String files[] = f.list();
+                	if (files != null) {
+	                	for (int i = 0; i < files.length; i++) {
+	                		files[i] = files[i].toUpperCase();
+	                	}
+                	}
+                    IoDirInfo info = new IoDirInfo(pcfilename, files);
                     result = info.id;
                 } else {
                     log.warn("sceIoDopen '" + pcfilename + "' not a directory! (could be missing)");
@@ -4134,5 +4156,22 @@ public class IoFileMgrForUser extends HLEModule {
     @HLEFunction(nid = 0x3C54E908, version = 150)
     public int sceIoReopen(PspString filename, int flags, int permissions, int id) {
     	return -1;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xC7F35804, version = 150)
+    public int sceIoDelDrv(PspString driverName) {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x8E982A74, version = 150)
+    public int sceIoAddDrv(TPointer pspIoDrvAddr) {
+    	pspIoDrv pspIoDrv = new pspIoDrv();
+    	pspIoDrv.read(pspIoDrvAddr);
+
+    	log.warn(String.format("sceIoAddDrv pspIoDrv=%s", pspIoDrv));
+
+    	return 0;
     }
 }
