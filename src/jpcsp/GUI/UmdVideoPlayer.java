@@ -125,6 +125,8 @@ public class UmdVideoPlayer implements KeyListener {
 	public static int frame;
 	private int videoWidth;
 	private int videoHeight;
+	private int videoAspectRatioNum;
+	private int videoAspectRatioDen;
 	private int[] luma;
 	private int[] cr;
 	private int[] cb;
@@ -153,6 +155,7 @@ public class UmdVideoPlayer implements KeyListener {
 	// Time synchronization
 	private PesHeader pesHeaderAudio;
 	private PesHeader pesHeaderVideo;
+	private long currentVideoTimestamp;
 	private int currentChapterNumber;
 	private long startTime;
     private int fastForwardSpeed;
@@ -280,16 +283,14 @@ public class UmdVideoPlayer implements KeyListener {
 
     private static String getTimestampString(long timestamp) {
     	int seconds = (int) (timestamp / mpegTimestampPerSecond);
+    	int hundredth = (int) (timestamp - ((long) seconds) * mpegTimestampPerSecond);
+    	hundredth = 100 * hundredth / mpegTimestampPerSecond;
     	int minutes = seconds / 60;
     	seconds -= minutes * 60;
     	int hours = minutes / 60;
     	minutes -= hours * 60;
 
-    	if (hours == 0) {
-    		return String.format("%02d:%02d", minutes, seconds);
-    	}
-
-    	return String.format("%d:%02d:%02d", hours, minutes, seconds);
+    	return String.format("%02d:%02d:%02d.%02d", hours, minutes, seconds, hundredth);
     }
 
     public UmdVideoPlayer(MainGUI gui, UmdIsoReader iso) {
@@ -413,9 +414,9 @@ public class UmdVideoPlayer implements KeyListener {
 	        screenHeigth = Screen.height * resizeScaleFactor;
     	} else {
     		if (log.isDebugEnabled()) {
-    			log.debug(String.format("video size %dx%d", videoWidth, videoHeight));
+    			log.debug(String.format("video size %dx%d resizeScaleFactor=%d", videoWidth, videoHeight, resizeScaleFactor));
     		}
-	        screenWidth = videoWidth * resizeScaleFactor;
+	        screenWidth = videoWidth * videoAspectRatioNum / videoAspectRatioDen * resizeScaleFactor;
 	        screenHeigth = videoHeight * resizeScaleFactor;
     	}
 
@@ -587,6 +588,7 @@ public class UmdVideoPlayer implements KeyListener {
 				log.debug(String.format("RCO: %s", rco));
 			}
 
+			getRCODisplay().changeResource();
 			rcoState = rco.execute(rcoState, this, resourceName);
 		} catch (FileNotFoundException e) {
 		} catch (IOException e) {
@@ -1177,7 +1179,12 @@ public class UmdVideoPlayer implements KeyListener {
 	    }
 
 	    if (videoCodec.hasImage()) {
-	    	frame++;
+    		int[] aspectRatio = new int[2];
+    		videoCodec.getAspectRatio(aspectRatio);
+    		videoAspectRatioNum = aspectRatio[0];
+    		videoAspectRatioDen = aspectRatio[1];
+
+    		frame++;
 	    }
 
 	    consumeVideoData(consumedLength);
@@ -1199,6 +1206,9 @@ public class UmdVideoPlayer implements KeyListener {
 	    	if (videoHeight <= 0) {
 	    		videoHeight = height;
 	    		resized = true;
+	    	}
+	    	if (log.isTraceEnabled()) {
+	    		log.trace(String.format("Decoded video frame %dx%d (video %dx%d), pes=%s, SAR %d:%d", width, height, videoWidth, videoHeight, pesHeaderVideo, videoAspectRatioNum, videoAspectRatioDen));
 	    	}
 	    	if (resized) {
 	    		resizeVideoPlayer();
@@ -1232,7 +1242,19 @@ public class UmdVideoPlayer implements KeyListener {
 	    	}
 	    }
 
-	    if (pesHeaderVideo.getPts() != UNKNOWN_TIMESTAMP) {
+	    if (videoCodec.hasImage()) {
+	    	if (pesHeaderVideo.getPts() != UNKNOWN_TIMESTAMP) {
+	    		currentVideoTimestamp = pesHeaderVideo.getPts();
+	    	} else {
+	    		currentVideoTimestamp += sceMpeg.videoTimestampStep;
+	    	}
+	    	if (log.isTraceEnabled()) {
+	    		MpsStreamInfo streamInfo = mpsStreams.get(currentStreamIndex);
+	    		log.trace(String.format("Playing stream %d: %s / %s", currentStreamIndex, getTimestampString(currentVideoTimestamp - streamInfo.streamFirstTimestamp), getTimestampString(streamInfo.streamLastTimestamp - streamInfo.streamFirstTimestamp)));
+	    	}
+	    }
+
+    	if (pesHeaderVideo.getPts() != UNKNOWN_TIMESTAMP) {
 		    int chapterNumber = mpsStreams.get(currentStreamIndex).getChapterNumber(pesHeaderVideo.getPts());
 		    if (chapterNumber != currentChapterNumber) {
 		    	if (moviePlayer != null) {
@@ -1340,6 +1362,9 @@ public class UmdVideoPlayer implements KeyListener {
                         if (display != null && image != null) {
                         	Image scaledImage = getImage();
                         	if (videoWidth != screenWidth || videoHeight != screenHeigth) {
+                        		if (log.isTraceEnabled()) {
+                        			log.trace(String.format("Scaling video image from %dx%d to %dx%d", videoWidth, videoHeight, screenWidth, screenHeigth));
+                        		}
                         		scaledImage = scaledImage.getScaledInstance(screenWidth, screenHeigth, Image.SCALE_SMOOTH);
                         	}
                             display.setIcon(new ImageIcon(scaledImage));

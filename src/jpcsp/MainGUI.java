@@ -97,6 +97,7 @@ import jpcsp.hardware.Screen;
 import jpcsp.log.LogWindow;
 import jpcsp.log.LoggingOutputStream;
 import jpcsp.network.proonline.ProOnlineNetworkAdapter;
+import jpcsp.remote.HTTPServer;
 import jpcsp.settings.Settings;
 import jpcsp.util.JpcspDialogManager;
 import jpcsp.util.MetaInformation;
@@ -1448,10 +1449,7 @@ private void EnterDebuggerActionPerformed(java.awt.event.ActionEvent evt) {//GEN
 }//GEN-LAST:event_EnterDebuggerActionPerformed
 
 private void RunButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_RunButtonActionPerformed
-        if (umdvideoplayer != null) {
-            umdvideoplayer.initVideo();
-        }
-        RunEmu();
+		run();
 }//GEN-LAST:event_RunButtonActionPerformed
 
     private JFileChooser makeJFileChooser() {
@@ -1671,10 +1669,7 @@ private void OpenFileActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRS
     }
 
 private void PauseButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_PauseButtonActionPerformed
-        if (umdvideoplayer != null) {
-            umdvideoplayer.pauseVideo();
-        }
-        TogglePauseEmu();
+		pause();
 }//GEN-LAST:event_PauseButtonActionPerformed
 
 private void ElfHeaderViewerActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_ElfHeaderViewerActionPerformed
@@ -1758,16 +1753,7 @@ private void formWindowClosing(java.awt.event.WindowEvent evt) {//GEN-FIRST:even
 private void openUmdActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_openUmdActionPerformed
         PauseEmu();
         if (Settings.getInstance().readBool("emu.umdbrowser")) {
-            List<File> umdPaths = new LinkedList<File>();
-            umdPaths.add(new File(Settings.getInstance().readString("emu.umdpath") + "/"));
-            for (int i = 1; true; i++) {
-                String umdPath = Settings.getInstance().readString(String.format("emu.umdpath.%d", i), null);
-                if (umdPath == null) {
-                    break;
-                }
-                umdPaths.add(new File(umdPath + "/"));
-            }
-            umdbrowser = new UmdBrowser(this, umdPaths.toArray(new File[umdPaths.size()]));
+            umdbrowser = new UmdBrowser(this, getUmdPaths());
             umdbrowser.setVisible(true);
         } else {
             final JFileChooser fc = makeJFileChooser();
@@ -1790,16 +1776,7 @@ private void openUmdActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
 
 private void switchUmdActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_switchUmdActionPerformed
         if (Settings.getInstance().readBool("emu.umdbrowser")) {
-            List<File> umdPaths = new LinkedList<File>();
-            umdPaths.add(new File(Settings.getInstance().readString("emu.umdpath") + "/"));
-            for (int i = 1; true; i++) {
-                String umdPath = Settings.getInstance().readString(String.format("emu.umdpath.%d", i), null);
-                if (umdPath == null) {
-                    break;
-                }
-                umdPaths.add(new File(umdPath + "/"));
-            }
-            umdbrowser = new UmdBrowser(this, umdPaths.toArray(new File[umdPaths.size()]));
+            umdbrowser = new UmdBrowser(this, getUmdPaths());
             umdbrowser.setSwitchingUmd(true);
             umdbrowser.setVisible(true);
         } else {
@@ -2310,7 +2287,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
     }
 
     private void ResetButtonActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_ResetButtonActionPerformed
-        resetEmu();
+    	reset();
 }//GEN-LAST:event_ResetButtonActionPerformed
 
     private void resetEmu() {
@@ -2780,6 +2757,20 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
         }
     }
 
+    public static File[] getUmdPaths() {
+        List<File> umdPaths = new LinkedList<File>();
+        umdPaths.add(new File(Settings.getInstance().readString("emu.umdpath") + "/"));
+        for (int i = 1; true; i++) {
+            String umdPath = Settings.getInstance().readString(String.format("emu.umdpath.%d", i), null);
+            if (umdPath == null) {
+                break;
+            }
+            umdPaths.add(new File(umdPath + "/"));
+        }
+
+        return umdPaths.toArray(new File[umdPaths.size()]);
+    }
+
     private void printUsage() {
         System.err.println("Usage: java -Xmx512m -jar jpcsp.jar [OPTIONS]");
         System.err.println();
@@ -2871,6 +2862,8 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
         DOMConfigurator.configure("LogSettings.xml");
 
         AES128.init();
+
+        HTTPServer.getInstance();
 
         // prepare i18n
         String locale = Settings.getInstance().readString("emu.language");
@@ -3156,4 +3149,25 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
 
         return new Rectangle(getX() + insets.left + contentBounds.x + canvasBounds.x, getY() + insets.top + contentBounds.y + canvasBounds.y, canvasBounds.width, canvasBounds.height);
     }
+
+	@Override
+	public void run() {
+        if (umdvideoplayer != null) {
+            umdvideoplayer.initVideo();
+        }
+        RunEmu();
+	}
+
+	@Override
+	public void pause() {
+        if (umdvideoplayer != null) {
+            umdvideoplayer.pauseVideo();
+        }
+        TogglePauseEmu();
+	}
+
+	@Override
+	public void reset() {
+        resetEmu();
+	}
 }

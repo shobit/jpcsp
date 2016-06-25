@@ -118,10 +118,15 @@ public abstract class BaseObject extends BaseNativeObject {
 	public VSMXBaseObject createVSMXObject(VSMXInterpreter interpreter, VSMXBaseObject parent, RCOEntry entry) {
 		VSMXNativeObject object = new VSMXNativeObject(interpreter, this);
 		setObject(object);
+		entry.vsmxBaseObject = object;
 		if (entry.label != null) {
 			name = entry.label;
 			object.setPropertyValue("name", new VSMXString(interpreter, entry.label));
 			parent.setPropertyValue(entry.label, object);
+		}
+
+		if (entry.parent != null && entry.parent.vsmxBaseObject instanceof VSMXNativeObject) {
+			setParent(((VSMXNativeObject) entry.parent.vsmxBaseObject).getObject());
 		}
 
 		return object;
@@ -129,6 +134,10 @@ public abstract class BaseObject extends BaseNativeObject {
 
 	public void setDisplay(Display display) {
 		this.display = display;
+	}
+
+	public void onDisplayUpdated() {
+		display.repaint();
 	}
 
 	public void setController(Controller controller) {
@@ -167,6 +176,9 @@ public abstract class BaseObject extends BaseNativeObject {
 		}
 	}
 
+	protected void toString(StringBuilder s) {
+	}
+
 	@Override
 	public String toString() {
 		StringBuilder s = new StringBuilder();
@@ -189,6 +201,7 @@ public abstract class BaseObject extends BaseNativeObject {
 				}
 			}
 		}
+		toString(s);
 		s.append("]");
 
 		return s.toString();

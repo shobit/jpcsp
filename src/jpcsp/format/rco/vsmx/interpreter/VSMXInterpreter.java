@@ -37,6 +37,7 @@ public class VSMXInterpreter {
 	private VSMXCallState callState;
 	private VSMXObject globalVariables;
 	private String prefix;
+	private String name;
 
 	private class InterpretFunctionAction implements IAction {
 		private VSMXFunction function;
@@ -60,6 +61,7 @@ public class VSMXInterpreter {
 
 	public void setVSMX(VSMX vsmx) {
 		mem = vsmx.getMem();
+		name = vsmx.getName();
 	}
 
 	public VSMXObject getGlobalVariables() {
@@ -389,9 +391,20 @@ public class VSMXInterpreter {
 				o1 = stack.pop();
 				o2 = stack.pop().getValue();
 				if (o2 instanceof VSMXArray) {
-					o = o2.getPropertyValue(o1.getIntValue());
+					o = new VSMXReference(this, (VSMXObject) o2, o1.getIntValue());
+					if (log.isTraceEnabled()) {
+						log.trace(String.format("%s VSMXArray %s[%d] = %s", VSMXCode.VsmxDecOps[code.getOpcode()], o2, o1.getIntValue(), o));
+					}
+				} else if (o2 instanceof VSMXObject) {
+					o = new VSMXReference(this, (VSMXObject) o2, o1.getStringValue());
+					if (log.isTraceEnabled()) {
+						log.trace(String.format("%s VSMXObject %s[%s] = %s", VSMXCode.VsmxDecOps[code.getOpcode()], o2, o1.getStringValue(), o));
+					}
 				} else {
 					o = o2.getPropertyValue(o1.getStringValue());
+					if (log.isTraceEnabled()) {
+						log.trace(String.format("%s %s[%s] = %s", VSMXCode.VsmxDecOps[code.getOpcode()], o2, o1.getStringValue(), o));
+					}
 				}
 				stack.push(o);
 				break;
@@ -662,8 +675,9 @@ public class VSMXInterpreter {
 			object = VSMXNull.singleton;
 		}
 
-		if (script.startsWith("script:/main/")) {
-			String functionName = script.substring(13);
+		String scriptPrefix = String.format("script:/%s/", name);
+		if (script.startsWith(scriptPrefix)) {
+			String functionName = script.substring(scriptPrefix.length());
 			VSMXBaseObject functionObject = globalVariables.getPropertyValue(functionName);
 			if (functionObject instanceof VSMXFunction) {
 				VSMXFunction function = (VSMXFunction) functionObject;
