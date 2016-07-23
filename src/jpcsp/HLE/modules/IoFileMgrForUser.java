@@ -166,9 +166,9 @@ public class IoFileMgrForUser extends HLEModule {
     protected Map<String, String> assignedDevices;
 
     public static enum IoOperation {
-        open(5), close(1), seek(1), ioctl(20), remove, rename, mkdir, dread, iodevctl(2),
-        // Duration of read operation: approx. 4 ms per 0x10000 bytes (tested on real PSP)
-        read(4, 0x10000),
+        open(5), close(1), seek(0), ioctl(20), remove, rename, mkdir, dread, iodevctl(2),
+        // Duration of read operation: approx. 7 ms per 0x10000 bytes (tested on real PSP)
+        read(7, 0x10000),
         // Duration of write operation: approx. 5 ms per 0x10000 bytes
         write(5, 0x10000);
 
@@ -1529,7 +1529,7 @@ public class IoFileMgrForUser extends HLEModule {
         	} else {
         		log.warn(String.format("hleIoWaitAsync - unknown id 0x%X", id));
         	}
-            return ERROR_KERNEL_NO_ASYNC_OP;
+            return ERROR_KERNEL_BAD_FILE_DESCRIPTOR;
         }
 
         if (info.result == ERROR_KERNEL_NO_ASYNC_OP || info.asyncThread == null) {
@@ -1833,30 +1833,43 @@ public class IoFileMgrForUser extends HLEModule {
     private int hleIoClose(int id, boolean async) {
         int result;
 
-        if (log.isDebugEnabled()) {
-            log.debug("hleIoClose - id " + Integer.toHexString(id));
-        }
-
         IoInfo info = fileIds.get(id);
-        if (async) {
+        if (id == STDIN_ID || id == STDOUT_ID || id == STDERR_ID) {
+        	// Cannot close stdin, stdout, stderr
+        	result = SceKernelErrors.ERROR_KERNEL_ILLEGAL_PERMISSION;
+        	if (log.isDebugEnabled()) {
+        		log.debug(String.format("sceIoClose id=0x%X returning ERROR_KERNEL_ILLEGAL_PERMISSION(0x%08X)", id, result));
+        	}
+        } else if (async) {
             if (info != null) {
                 if (info.asyncPending || info.asyncResultPending) {
-                    log.warn("sceIoCloseAsync - id " + Integer.toHexString(id) + " PSP_ERROR_ASYNC_BUSY");
                     result = ERROR_KERNEL_ASYNC_BUSY;
+                	if (log.isDebugEnabled()) {
+                		log.debug(String.format("sceIoClose id=0x%X returning ERROR_KERNEL_ASYNC_BUSY(0x%08X)", id, result));
+                	}
                 } else {
                     info.closePending = true;
                     result = (int) updateResult(info, 0, true, false, IoOperation.close);
                 }
             } else {
                 result = ERROR_KERNEL_BAD_FILE_DESCRIPTOR;
+            	if (log.isDebugEnabled()) {
+            		log.debug(String.format("sceIoClose id=0x%X returning ERROR_KERNEL_BAD_FILE_DESCRIPTOR(0x%08X)", id, result));
+            	}
             }
         } else {
             try {
                 if (info == null) {
-                    if (id != 1 && id != 2) { // Ignore stdout and stderr.
-                        log.warn("sceIoClose - unknown id " + Integer.toHexString(id));
-                    }
                     result = ERROR_KERNEL_BAD_FILE_DESCRIPTOR;
+                	if (log.isDebugEnabled()) {
+                		log.debug(String.format("sceIoClose id=0x%X returning ERROR_KERNEL_BAD_FILE_DESCRIPTOR(0x%08X)", id, result));
+                	}
+                } else if (info.asyncPending || info.asyncResultPending) {
+                	// Cannot close while an async operation is running
+                    result = ERROR_KERNEL_ASYNC_BUSY;
+                	if (log.isDebugEnabled()) {
+                		log.debug(String.format("sceIoClose id=0x%X returning ERROR_KERNEL_ASYNC_BUSY(0x%08X)", id, result));
+                	}
                 } else {
                 	if (info.vFile != null) {
                 		info.vFile.ioClose();
@@ -1872,7 +1885,6 @@ public class IoFileMgrForUser extends HLEModule {
                 }
             } catch (IOException e) {
                 log.error("pspiofilemgr - error closing file: " + e.getMessage());
-                e.printStackTrace();
                 result = -1;
             }
             for (IIoListener ioListener : ioListeners) {
