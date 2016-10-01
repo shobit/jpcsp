@@ -19,9 +19,14 @@ package jpcsp.HLE.modules;
 import java.util.HashMap;
 
 import jpcsp.Memory;
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLELogging;
 import jpcsp.HLE.HLEModule;
+import jpcsp.HLE.HLEUnimplemented;
+import jpcsp.HLE.PspString;
 import jpcsp.HLE.TPointer;
 import jpcsp.HLE.Modules;
 import jpcsp.HLE.kernel.managers.SceUidManager;
@@ -35,6 +40,7 @@ import org.apache.log4j.Logger;
 public class SysMemForKernel extends HLEModule {
     public static Logger log = Modules.getLogger("SysMemForKernel");
     protected HashMap<Integer, HeapInformation> heaps;
+    private String npEnv;
 
     protected static class HeapInformation {
     	private static final String uidPurpose = "SysMemForKernel-Heap";
@@ -105,15 +111,21 @@ public class SysMemForKernel extends HLEModule {
 	@Override
 	public void start() {
 		heaps = new HashMap<Integer, SysMemForKernel.HeapInformation>();
+		npEnv = "np"; // Used in URLs to connect to the playstation sites
 
 		super.start();
 	}
 
 	@HLEFunction(nid = 0xA089ECA4, version = 150)
-    public int sceKernelMemset(TPointer destAddr, int data, int size) {
+    public int sceKernelMemset(@BufferInfo(lengthInfo=LengthInfo.nextNextParameter, usage=Usage.out) TPointer destAddr, int data, int size) {
         destAddr.memset((byte) data, size);
 
         return 0;
+    }
+
+	@HLEFunction(nid = 0x8AE776AF, version = 660)
+    public int sceKernelMemset_660(TPointer destAddr, int data, int size) {
+		return sceKernelMemset(destAddr, data, size);
     }
 
     /**
@@ -206,4 +218,46 @@ public class SysMemForKernel extends HLEModule {
 
 		return result;
 	}
+
+    @HLEFunction(nid = 0x07C586A1, version = 660)
+    public int sceKernelGetModel_660() {
+		int result = Model.getModel(); // <= 0 original, 1 slim
+
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("sceKernelGetModel_660 returning %d(%s)", result, Model.getModelName(result)));
+		}
+
+		return result;
+	}
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x945E45DA, version = 150)
+    public int SysMemUserForUser_945E45DA(TPointer unknown) {
+    	unknown.setStringNZ(9, npEnv);
+
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x7FF2F35A, version = 660)
+    public int SysMemForKernel_7FF2F35A(TPointer unknown) {
+    	return SysMemUserForUser_945E45DA(unknown);
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xA03CB480, version = 660)
+    public int SysMemForKernel_A03CB480(TPointer unknown) {
+    	npEnv = unknown.getStringNZ(8);
+    	if (log.isDebugEnabled()) {
+    		log.debug(String.format("SysMemForKernel_A03CB480 setting unknownString='%s'", npEnv));
+    	}
+
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x807179E7, version = 150)
+    public int sceKernelSetParamSfo(PspString discId, int unknown1, int unknown2, PspString unknown3, int unknown4, int unknown5, PspString pspVersion) {
+    	return 0;
+    }
 }

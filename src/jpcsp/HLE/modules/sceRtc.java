@@ -24,6 +24,7 @@ import java.util.TimeZone;
 
 import jpcsp.Clock.TimeNanos;
 import jpcsp.Emulator;
+import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
 import jpcsp.HLE.HLEUnimplemented;
@@ -462,7 +463,11 @@ public class sceRtc extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x7D1FBED3, version = 150)
-    public int sceRtcSetAlarmTick(TPointer64 srcPtr) {
+    public int sceRtcSetAlarmTick(@CanBeNull TPointer64 srcPtr) {
+    	if (log.isDebugEnabled() && srcPtr.isNotNull()) {
+    		log.debug(String.format("sceRtcSetAlarmTick src=0x%X", srcPtr.getValue()));
+    	}
+
     	return 0;
     }
 
@@ -512,4 +517,42 @@ public class sceRtc extends HLEModule {
 	public int sceRtcRegisterCallback(int callbackId) {
 		return 0;
 	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x6A676D2D, version = 271)
+	public int sceRtcUnregisterCallback(int callbackId) {
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0xF5FCC995 , version = 150)
+	public int sceRtcGetCurrentNetworkTick(TPointer64 networkTick) {
+		networkTick.setValue(hleGetCurrentTick());
+
+        if (log.isDebugEnabled()) {
+        	log.debug(String.format("sceRtcGetCurrentNetworkTick returning %d", networkTick.getValue()));
+        }
+
+        return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0xC2DDBEB5, version = 150)
+	public int sceRtcGetAlarmTick(TPointer64 alarmTick) {
+		alarmTick.setValue(0L);
+
+		return 0;
+	}
+
+	@HLEUnimplemented
+    @HLEFunction(nid = 0xE09880CF, version = 660)
+    public int sceRtcSetAlarmTick_660(@CanBeNull TPointer64 srcPtr) {
+		return sceRtcSetAlarmTick(srcPtr);
+    }
+
+	@HLEUnimplemented
+    @HLEFunction(nid = 0xCEEF238F, version = 150)
+    public int sceRtcGetCurrentSecureTick(TPointer64 currentTick) {
+		return sceRtcGetCurrentTick(currentTick);
+    }
 }

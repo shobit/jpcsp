@@ -47,6 +47,7 @@ import java.io.PrintStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.security.Security;
 import java.text.MessageFormat;
 import java.util.LinkedList;
 import java.util.List;
@@ -81,8 +82,12 @@ import jpcsp.GUI.UmdBrowser;
 import jpcsp.GUI.UmdVideoPlayer;
 import jpcsp.HLE.HLEModuleManager;
 import jpcsp.HLE.Modules;
+import jpcsp.HLE.TPointer;
+import jpcsp.HLE.kernel.types.SceKernelSMOption;
 import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.modules.IoFileMgrForUser;
+import jpcsp.HLE.modules.SysMemUserForUser;
+import jpcsp.HLE.modules.SysMemUserForUser.SysMemInfo;
 import jpcsp.HLE.modules.sceDisplay;
 import jpcsp.HLE.modules.sceUtility;
 import jpcsp.filesystems.SeekableDataInput;
@@ -1500,6 +1505,7 @@ private void OpenFileActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRS
 
     public void loadFile(File file) {
         java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("jpcsp/languages/jpcsp"); // NOI18N
+        Model.setModel(Settings.getInstance().readInt("emu.model"));
 
         //This is where a real application would open the file.
         try {
@@ -1865,6 +1871,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
     public void loadUMD(File file) {
     	String filePath = file == null ? null : file.getPath();
         UmdIsoReader.setDoIsoBuffering(doUmdBuffering);
+        Model.setModel(Settings.getInstance().readInt("emu.model"));
 
         UmdIsoReader iso = null;
 		try {
@@ -1958,8 +1965,6 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
                 emulator.setFirmwareVersion(psf.getString("PSP_SYSTEM_VER"));
             }
             RuntimeContext.setIsHomebrew(psf.isLikelyHomebrew());
-            
-            Model.setModel(Settings.getInstance().readInt("emu.model"));
 
             State.discId = discId;
 
@@ -2848,6 +2853,45 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
                 }
             } else if (args[i].equals("--ProOnline")) {
                 ProOnlineNetworkAdapter.setEnabled(true);
+            } else if (args[i].equals("--vsh")) {
+                Modules.sceDisplayModule.setCalledFromCommandLine();
+            	loadFile(new File("flash0/vsh/module/vshmain.prx"));
+
+            	final int startOptionsSize = 20;
+            	SysMemInfo startOptionsMem = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.KERNEL_PARTITION_ID, "ModuleStartOptions", SysMemUserForUser.PSP_SMEM_Low, startOptionsSize, 0);
+            	TPointer startOptions = new TPointer(Memory.getInstance(), startOptionsMem.addr);
+            	startOptions.setValue32(startOptionsSize);
+            	SceKernelSMOption sceKernelSMOption = new SceKernelSMOption();
+            	sceKernelSMOption.mpidStack = 0;
+            	sceKernelSMOption.stackSize = 0;
+            	sceKernelSMOption.attribute = 0;
+
+            	// Use different start thread priorities to enforce the start order
+            	sceKernelSMOption.priority = 0x12;
+            	sceKernelSMOption.write(startOptions);
+            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/kd/vshbridge.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
+
+            	sceKernelSMOption.priority = 0x14;
+            	sceKernelSMOption.write(startOptions);
+            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/vsh/module/paf.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
+
+            	sceKernelSMOption.priority = 0x16;
+            	sceKernelSMOption.write(startOptions);
+            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/vsh/module/common_gui.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
+
+            	sceKernelSMOption.priority = 0x18;
+            	sceKernelSMOption.write(startOptions);
+            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/vsh/module/common_util.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
+
+            	sceKernelSMOption.priority = 0x1A;
+            	sceKernelSMOption.write(startOptions);
+            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/kd/mesg_led_01g.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
+
+            	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_VAUDIO");
+            	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_ATRAC3PLUS");
+            	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_AVCODEC");
+
+            	Modules.SysMemUserForUserModule.free(startOptionsMem);
             } else {
                 printUsage();
                 break;
@@ -2860,6 +2904,10 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
      */
     public static void main(String args[]) {
         DOMConfigurator.configure("LogSettings.xml");
+
+		// Re-enable all disabled algorithms as the PSP is allowing them
+		Security.setProperty("jdk.certpath.disabledAlgorithms", "");
+		Security.setProperty("jdk.tls.disabledAlgorithms", "");
 
         AES128.init();
 

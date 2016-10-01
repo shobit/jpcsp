@@ -17,14 +17,21 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
 package jpcsp;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 
+import org.apache.log4j.Logger;
+
+import jpcsp.HLE.Modules;
 import jpcsp.HLE.SyscallIgnore;
 import jpcsp.HLE.kernel.types.SceModule;
 
 public class NIDMapper {
+	private static Logger log = Modules.log;
     private static NIDMapper instance;
     private HashMap<Integer, Integer> nidToSyscall;
     private HashMap<String, HashMap<Integer, Integer>> moduleToNidTable;
+    private Set<Integer> overwrittenSyscalls;
 
     public static NIDMapper getInstance() {
         if (instance == null) {
@@ -36,19 +43,71 @@ public class NIDMapper {
     public void Initialise() {
         moduleToNidTable = new HashMap<String, HashMap<Integer, Integer>>();
         nidToSyscall = new HashMap<Integer, Integer>();
+        overwrittenSyscalls = new HashSet<Integer>();
 
         for (SyscallIgnore c : SyscallIgnore.values()) {
             nidToSyscall.put(c.getNID(), c.getSyscall());
         }
     }
 
-    /** returns -1 if the nid couldn't be mapped */
-    public int nidToSyscall(int nid) {
-        Integer code = nidToSyscall.get(nid);
+    private int nidToSyscallInternal(int nid) {
+    	Integer code = nidToSyscall.get(nid);
         if (code == null) {
             return -1;
         }
         return code.intValue();
+    }
+
+    /** returns -1 if the nid couldn't be mapped */
+    public int nidToSyscall(int nid) {
+    	int syscall = nidToSyscallInternal(nid);
+    	if (isOverwrittenSyscall(syscall)) {
+    		// The HLE syscall has been overwritten by a prx
+    		return -1;
+    	}
+
+    	return syscall;
+    }
+
+    public int syscallToNid(int code) {
+    	for (int nid : nidToSyscall.keySet()) {
+    		if (nidToSyscall.get(nid) == code) {
+    			return nid;
+    		}
+    	}
+
+    	return 0;
+    }
+
+    public boolean isOverwrittenSyscall(int code) {
+    	return overwrittenSyscalls.contains(code);
+    }
+
+    public int overwrittenSyscallToAddress(int code) {
+    	int nid = syscallToNid(code);
+
+    	for (String moduleName : moduleToNidTable.keySet()) {
+    		HashMap<Integer, Integer> nidToAddress = moduleToNidTable.get(moduleName);
+    		Integer address = nidToAddress.get(nid);
+    		if (address != null) {
+    			return address.intValue();
+    		}
+    	}
+
+    	return 0;
+    }
+
+    public int overwrittenSyscallAddressToCode(int address) {
+    	for (String moduleName : moduleToNidTable.keySet()) {
+    		HashMap<Integer, Integer> nidToAddress = moduleToNidTable.get(moduleName);
+    		for (int nid : nidToAddress.keySet()) {
+    			if (address == nidToAddress.get(nid).intValue()) {
+    				return nidToSyscallInternal(nid);
+    			}
+    		}
+    	}
+
+    	return -1;
     }
 
     /**
@@ -65,9 +124,19 @@ public class NIDMapper {
     /** @param modulename Example: sceRtc
      * @param address Address of export (example: start of function). */
     public void addModuleNid(SceModule module, String modulename, int nid, int address) {
-        HashMap<Integer, Integer> nidToAddress;
+        int syscall = nidToSyscall(nid);
+        if (syscall != -1) {
+    		// Only modules from flash0 are allowed to overwrite NIDs from syscalls
+        	if (module.pspfilename == null || !module.pspfilename.startsWith("flash0:")) {
+        		return;
+        	}
+        	if (log.isInfoEnabled()) {
+        		log.info(String.format("NID 0x%08X at address 0x%08X from module '%s' overwriting an HLE syscall", nid, address, modulename));
+        	}
+    		overwrittenSyscalls.add(syscall);
+        }
 
-        nidToAddress = moduleToNidTable.get(modulename);
+        HashMap<Integer, Integer> nidToAddress = moduleToNidTable.get(modulename);
         if (nidToAddress == null) {
             nidToAddress = new HashMap<Integer, Integer>();
             moduleToNidTable.put(modulename, nidToAddress);
@@ -79,7 +148,17 @@ public class NIDMapper {
 
     /** Use this when unloading modules */
     public void removeModuleNids(String modulename) {
-        moduleToNidTable.remove(modulename);
+         HashMap<Integer, Integer> nidToAddress = moduleToNidTable.remove(modulename);
+
+        // The overwritten syscalls are now visible again
+        if (nidToAddress != null && overwrittenSyscalls.size() > 0) {
+    		for (int nid : nidToAddress.keySet()) {
+    			int syscall = nidToSyscallInternal(nid);
+    			if (syscall != -1) {
+    				overwrittenSyscalls.remove(syscall);
+    			}
+    		}
+    	}
     }
 
     /** returns -1 if the nid couldn't be mapped */

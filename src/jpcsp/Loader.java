@@ -16,6 +16,7 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp;
 
+import static jpcsp.HLE.modules.ThreadManForUser.NOP;
 import static jpcsp.format.Elf32SectionHeader.SHF_ALLOCATE;
 import static jpcsp.format.Elf32SectionHeader.SHF_EXECUTE;
 import static jpcsp.format.Elf32SectionHeader.SHF_NONE;
@@ -181,6 +182,8 @@ public class Loader {
             f.position(currentOffset);
             LoadUNK(f, module, baseAddress, analyzeOnly);
         } while(false);
+
+        patchModule(module);
 
         return module;
     }
@@ -1408,7 +1411,7 @@ public class Loader {
 	                    // from custom modules (attr != 0x4000) unless
 	                    // the module is a homebrew (loaded from MemoryStick) or
 	                    // this is the EBOOT module.
-                        if (Memory.isAddressGood(exportAddress) && ((entHeader.getAttr() & 0x4000) != 0x4000) || module.pspfilename.startsWith("ms0:") || module.pspfilename.startsWith("disc0:/PSP_GAME/SYSDIR/EBOOT.")) {
+                        if (Memory.isAddressGood(exportAddress) && ((entHeader.getAttr() & 0x4000) != 0x4000) || module.pspfilename.startsWith("ms0:") || module.pspfilename.startsWith("disc0:/PSP_GAME/SYSDIR/EBOOT.") || module.pspfilename.startsWith("flash0:")) {
                             nidMapper.addModuleNid(module, moduleName, nid, exportAddress);
                             entCount++;
                             if (log.isDebugEnabled()) {
@@ -1563,5 +1566,33 @@ public class Loader {
             ElfHeaderInfo.ProgInfo = elf.getProgInfo();
             ElfHeaderInfo.SectInfo = elf.getSectInfo();
         }
+    }
+
+    /**
+     * Apply patches to some VSH modules in a similar way to ProCFW.
+     * 
+     * @param module
+     */
+    private void patchModule(SceModule module) {
+    	Memory mem = Emulator.getMemory();
+
+    	if ("vsh_module".equals(module.modname)) {
+    		patch(mem, module, 0x000122B0, 0x506000E0, NOP());
+    		patch(mem, module, 0x00012058, 0x1440003B, NOP());
+    		patch(mem, module, 0x00012060, 0x14400039, NOP());
+    	}
+    	if ("sceNpCommerce2".equals(module.modname)) {
+    		patch(mem, module, 0x0000A598, 0x00000073, 0x00000000); // replace "https" with "http"
+    		patch(mem, module, 0x00003A60, 0x240701BB, 0x24070050); // replace port 443 with 80
+    	}
+    }
+
+    private void patch(Memory mem, SceModule module, int offset, int oldValue, int newValue) {
+    	int checkValue = mem.read32(module.baseAddress + offset);
+    	if (checkValue != oldValue) {
+    		log.error(String.format("Patching of module '%s' failed at offset 0x%X, 0x%08X found instead of 0x%08X", module.modname, offset, checkValue, oldValue));
+    	} else {
+    		mem.write32(module.baseAddress + offset, newValue);
+    	}
     }
 }

@@ -1561,6 +1561,8 @@ public class IoFileMgrForUser extends HLEModule {
         // The file was marked as closePending, so close it right away to avoid delays.
         if (info.closePending) {
             log.debug("hleIoWaitAsync - file marked with closePending, calling hleIoClose, not waiting");
+            info.asyncPending = false;
+            info.asyncResultPending = false;
             hleIoClose(info.id, false);
             waitForAsync = false;
         }
@@ -3844,7 +3846,7 @@ public class IoFileMgrForUser extends HLEModule {
                 	result = ERROR_KERNEL_UNSUPPORTED_OPERATION;
                 } else if (Memory.isAddressGood(indata_addr) && inlen == 4) {
                     int cbid = mem.read32(indata_addr);
-                    if (threadMan.hleKernelUnRegisterCallback(SceKernelThreadInfo.THREAD_CALLBACK_MEMORYSTICK, cbid) != null) {
+                    if (threadMan.hleKernelUnRegisterCallback(SceKernelThreadInfo.THREAD_CALLBACK_MEMORYSTICK, cbid)) {
                     	result = 0; // Success.
                     } else {
                     	result = ERROR_MEMSTICK_DEVCTL_BAD_PARAMS; // No such callback.
@@ -4003,6 +4005,17 @@ public class IoFileMgrForUser extends HLEModule {
                 	result = -1;
                 }
                 break;
+            }
+            case 0x02425856: {
+            	if (Memory.isAddressGood(indata_addr) && inlen >= 4) {
+            		// This is the value contained in the registry entry
+            		//	"/CONFIG/SYSTEM/CHARACTER_SET/oem"
+            		int characterSet = mem.read32(indata_addr);
+            		if (log.isDebugEnabled()) {
+            			log.debug(String.format("sceIoDevctl '%s' set character set to 0x%X", devicename.getString(), characterSet));
+            		}
+            	}
+            	break;
             }
             default:
                 log.warn("sceIoDevctl " + String.format("0x%08X", cmd) + " unknown command");

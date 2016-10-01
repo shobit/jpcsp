@@ -235,6 +235,16 @@ public class RuntimeContext {
 		while (interpret) {
 			int opcode = cpu.fetchOpcode();
 			Instruction insn = Decoder.instruction(opcode);
+
+			if (Compiler.log.isDebugEnabled()) {
+				Compiler.log.debug(String.format("Interpreting 0x%X - %s", cpu.pc - 4, insn.disasm(cpu.pc - 4, opcode)));
+				if (insn.hasFlags(Instruction.FLAG_HAS_DELAY_SLOT)) {
+					int opcodeDelaySlot = memory.read32(cpu.pc);
+					Instruction insnDelaySlot = Decoder.instruction(opcodeDelaySlot);
+					Compiler.log.debug(String.format("Interpreting 0x%X - %s", cpu.pc, insnDelaySlot.disasm(cpu.pc, opcodeDelaySlot)));
+				}
+			}
+
 			insn.interpret(processor, opcode);
 			if (insn.hasFlags(Instruction.FLAG_STARTS_NEW_BLOCK)) {
 				cpu.pc = jumpCall(cpu.pc);
@@ -295,12 +305,7 @@ public class RuntimeContext {
         	runtimeSyncThread.start();
         }
 
-        memory = Emulator.getMemory();
-		if (memory instanceof FastMemory) {
-			memoryInt = ((FastMemory) memory).getAll();
-		} else {
-		    memoryInt = null;
-		}
+        updateMemory();
 
         if (State.debugger != null || (memory instanceof DebuggerMemory) || debugMemoryRead || debugMemoryWrite) {
         	enableDebugger = true;
@@ -365,21 +370,7 @@ public class RuntimeContext {
 		// Switch to the real active thread, even if it is an idle thread
 		switchRealThread(Modules.ThreadManForUserModule.getCurrentThread());
 
-		IExecutable executable = getExecutable(pc);
-        int newPc = 0;
-        int returnAddress = cpu._ra;
-        boolean callbackExited = false;
-		try {
-			execWithReturnAddress(executable, returnAddress);
-			newPc = returnAddress;
-		} catch (StopThreadException e) {
-			// Ignore exception
-		} catch (Exception e) {
-			log.error("Catched Throwable in executeCallback:", e);
-			callbackExited = true;
-		}
-    	cpu.pc = newPc;
-    	cpu.npc = newPc; // npc is used when context switching
+        boolean callbackExited = executeFunction(pc);
 
 		if (log.isDebugEnabled()) {
 			log.debug(String.format("End of Callback 0x%08X", pc));
@@ -403,6 +394,15 @@ public class RuntimeContext {
 		    fpr = processor.cpu.fpr;
 		    vprFloat = processor.cpu.vprFloat;
 		    vprInt = processor.cpu.vprInt;
+		}
+    }
+
+    public static void updateMemory() {
+        memory = Emulator.getMemory();
+		if (memory instanceof FastMemory) {
+			memoryInt = ((FastMemory) memory).getAll();
+		} else {
+		    memoryInt = null;
 		}
     }
 
@@ -671,13 +671,13 @@ public class RuntimeContext {
     	syncFast();
     }
 
-    public static void syscallFast(int code) {
+    public static void syscallFast(int code) throws Exception {
 		// Fast syscall: no context switching
     	SyscallHandler.syscall(code);
     	postSyscallFast();
     }
 
-    public static void syscall(int code) throws StopThreadException {
+    public static void syscall(int code) throws Exception {
     	preSyscall();
     	SyscallHandler.syscall(code);
     	postSyscall();
@@ -699,6 +699,26 @@ public class RuntimeContext {
 				}
 			}
 		}
+    }
+
+    public static boolean executeFunction(int address) {
+		IExecutable executable = getExecutable(address);
+        int newPc = 0;
+        int returnAddress = cpu._ra;
+        boolean exception = false;
+		try {
+			execWithReturnAddress(executable, returnAddress);
+			newPc = returnAddress;
+		} catch (StopThreadException e) {
+			// Ignore exception
+		} catch (Exception e) {
+			log.error("Catched Throwable in executeCallback:", e);
+			exception = true;
+		}
+    	cpu.pc = newPc;
+    	cpu.npc = newPc; // npc is used when context switching
+
+    	return exception;
     }
 
     public static void runThread(RuntimeThread thread) {

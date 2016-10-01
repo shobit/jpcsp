@@ -169,11 +169,11 @@ public class sceGe_user extends HLEModule {
 
     private void triggerAsyncCallback(int cbid, int listId, int listPc, int behavior, int signalId, HashMap<Integer, SceKernelCallbackInfo> callbacks) {
     	SceKernelCallbackInfo callback = callbacks.get(cbid);
-    	if (callback != null && callback.callback_addr != 0) {
+    	if (callback != null && callback.hasCallbackFunction()) {
     		if (log.isDebugEnabled()) {
     			log.debug(String.format("Scheduling Async Callback %s, listId=0x%X, listPc=0x%08X, behavior=%d, signalId=0x%X", callback.toString(), listId, listPc, behavior, signalId));
     		}
-    		GeCallbackInterruptHandler geCallbackInterruptHandler = new GeCallbackInterruptHandler(callback.callback_addr, callback.callback_arg_addr, listPc);
+    		GeCallbackInterruptHandler geCallbackInterruptHandler = new GeCallbackInterruptHandler(callback.getCallbackFunction(), callback.getCallbackArgument(), listPc);
     		GeInterruptHandler geInterruptHandler = new GeInterruptHandler(geCallbackInterruptHandler, listId, behavior, signalId);
     		Emulator.getScheduler().addAction(geInterruptHandler);
     	} else {
@@ -727,10 +727,10 @@ public class sceGe_user extends HLEModule {
         SceKernelCallbackInfo callbackSignal = signalCallbacks.remove(cbid);
         SceKernelCallbackInfo callbackFinish = finishCallbacks.remove(cbid);
         if (callbackSignal != null) {
-            threadMan.hleKernelDeleteCallback(callbackSignal.uid);
+            threadMan.hleKernelDeleteCallback(callbackSignal.getUid());
         }
         if (callbackFinish != null) {
-            threadMan.hleKernelDeleteCallback(callbackFinish.uid);
+            threadMan.hleKernelDeleteCallback(callbackFinish.getUid());
         }
         SceUidManager.releaseId(cbid, geCallbackPurpose);
 
@@ -748,5 +748,15 @@ public class sceGe_user extends HLEModule {
     @HLEFunction(nid = 0x5BAA5439, version = 150)
     public int sceGeEdramSetSize(int size) {
     	return 0;
+    }
+
+    /**
+     * Gets the EDRAM physical size.
+     *
+     * @return The EDRAM physical size.
+     */
+    @HLEFunction(nid = 0x547EC5F0, version = 660)
+    public int sceGeEdramGetHwSize() {
+    	return MemoryMap.SIZE_VRAM;
     }
 }

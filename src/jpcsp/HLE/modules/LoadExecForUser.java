@@ -114,6 +114,9 @@ public class LoadExecForUser extends HLEModule {
             	// Do not pass the file name as first parameter (tested on PSP).
             	SceKernelThreadInfo rootThread = Modules.ThreadManForUserModule.getCurrentThread();
             	Modules.ThreadManForUserModule.hleKernelSetThreadArguments(rootThread, arguments, argSize);
+
+            	// The memory model (32MB / 64MB) could have been changed, update the RuntimeContext
+            	RuntimeContext.updateMemory();
             }
         } catch (GeneralJpcspException e) {
             log.error("General Error", e);
@@ -191,7 +194,7 @@ public class LoadExecForUser extends HLEModule {
         	}
     		return SceKernelErrors.ERROR_KERNEL_NOT_FOUND_CALLBACK;
     	}
-    	int callbackArgument = callbackInfo.callback_arg_addr;
+    	int callbackArgument = callbackInfo.getCallbackArgument();
     	if (!Memory.isAddressGood(callbackArgument)) {
         	if (log.isDebugEnabled()) {
         		log.debug(String.format("LoadExecForUser_362A956B invalid address for callbackArgument=0x%08X", callbackArgument));

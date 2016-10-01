@@ -25,12 +25,14 @@ import java.util.Set;
 
 import org.apache.log4j.Logger;
 
+import jpcsp.AllegrexOpcodes;
 import jpcsp.Emulator;
 import jpcsp.Memory;
 import jpcsp.NIDMapper;
 import jpcsp.Allegrex.compiler.RuntimeContext;
 import jpcsp.HLE.kernel.Managers;
 import jpcsp.HLE.kernel.types.SceModule;
+import jpcsp.HLE.modules.ThreadManForUser;
 
 /**
  * Manager for the HLE modules.
@@ -51,6 +53,7 @@ public class HLEModuleManager {
      * so that SyscallHandler can output an appropriate message when trying
      * to execute an uninstalled syscall.
      */
+    private HLEModuleFunction[] allSyscallCodeToFunction;
     private HLEModuleFunction[] syscallCodeToFunction;
     private int syscallCodeAllocator;
     private boolean modulesStarted = false;
@@ -118,14 +121,20 @@ public class HLEModuleManager {
         sceNetApctl(Modules.sceNetApctlModule, new String[] { "pspnet_apctl", "PSP_NET_MODULE_COMMON", "PSP_MODULE_NET_COMMON" }),
         sceNetInet(Modules.sceNetInetModule, new String[] { "pspnet_inet", "PSP_NET_MODULE_INET", "PSP_MODULE_NET_INET" }),
         sceNetResolver(Modules.sceNetResolverModule, new String[] { "pspnet_resolver", "PSP_NET_MODULE_COMMON", "PSP_MODULE_NET_COMMON" }),
+        sceNetUpnp(Modules.sceNetUpnpModule, new String[] { "pspnet_upnp", "PSP_MODULE_NET_UPNP" }),
         sceOpenPSID(Modules.sceOpenPSIDModule),
-        sceNp(Modules.sceNpModule, new String[] { "PSP_MODULE_NP_COMMON" }),
-        sceNpAuth(Modules.sceNpAuthModule, new String[] { "PSP_MODULE_NP_COMMON" }),
-        sceNpService(Modules.sceNpServiceModule, new String[] { "PSP_MODULE_NP_SERVICE" }),
+        sceNp(Modules.sceNpModule, new String[] { "np", "PSP_MODULE_NP_COMMON" }),
+        sceNpCore(Modules.sceNpCoreModule, new String[] { "np_core" }),
+        sceNpAuth(Modules.sceNpAuthModule, new String[] { "np_auth", "PSP_MODULE_NP_COMMON" }),
+        sceNpService(Modules.sceNpServiceModule, new String[] { "np_service", "PSP_MODULE_NP_SERVICE" }),
+        sceNpCommerce2(Modules.sceNpCommerce2Module, new String[] { "np_commerce2", "PSP_MODULE_NP_COMMERCE2" }),
+        sceNpCommerce2Store(Modules.sceNpCommerce2StoreModule, new String[] { "np_commerce2_store" }),
+        sceNpCommerce2RegCam(Modules.sceNpCommerce2RegCamModule, new String[] { "np_commerce2_regcam" }),
+        sceNpMatching2(Modules.sceNpMatching2Module, new String[] { "np_matching2", "PSP_MODULE_NP_MATCHING2" }),
         scePspNpDrm_user(Modules.scePspNpDrm_userModule, new String[] { "PSP_MODULE_NP_DRM" }),
         sceVaudio(Modules.sceVaudioModule, new String[] { "PSP_AV_MODULE_VAUDIO", "PSP_MODULE_AV_VAUDIO" }),
-        sceMp4(Modules.sceMp4Module, new String[] { "PSP_MODULE_AV_MP4" }),
-        sceHttp(Modules.sceHttpModule, new String[] { "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
+        sceMp4(Modules.sceMp4Module, new String[] { "PSP_MODULE_AV_MP4", "mp4msv" }),
+        sceHttp(Modules.sceHttpModule, new String[] { "libhttp", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
         sceHttps(Modules.sceHttpsModule),
         sceSsl(Modules.sceSslModule, new String[] { "libssl", "PSP_NET_MODULE_SSL", "PSP_MODULE_NET_SSL" }),
         sceP3da(Modules.sceP3daModule),
@@ -139,7 +148,7 @@ public class HLEModuleManager {
         scePauth(Modules.scePauthModule),
         sceSfmt19937(Modules.sceSfmt19937Module),
         sceMd5(Modules.sceMd5Module, new String[] { "libmd5" }),
-        sceParseUri(Modules.sceParseUriModule, new String[] { "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
+        sceParseUri(Modules.sceParseUriModule, new String[] { "libparse_uri", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
         sceUsbAcc(Modules.sceUsbAccModule, new String[] { "PSP_USB_MODULE_ACC", "USBAccBaseDriver" }),
         sceMt19937(Modules.sceMt19937Module, new String[] { "libmt19937" }),
         sceAac(Modules.sceAacModule, new String[] { "libaac", "PSP_AV_MODULE_AAC", "PSP_MODULE_AV_AAC" }),
@@ -157,7 +166,15 @@ public class HLEModuleManager {
         semaphore(Modules.semaphoreModule),
         ModuleMgrForKernel(Modules.ModuleMgrForKernelModule),
         sceReg(Modules.sceRegModule),
-        sceDve(Modules.sceDveModule);
+        sceDve(Modules.sceDveModule),
+        sceSysEventForKernel(Modules.sceSysEventForKernelModule),
+        sceChkreg(Modules.sceChkregModule),
+        sceMsAudio_Service(Modules.sceMsAudio_ServiceModule),
+        sceMePower(Modules.sceMePowerModule),
+        sceResmgr(Modules.sceResmgrModule),
+        UtilsForKernel(Modules.UtilsForKernelModule),
+        sceLibUpdateDL(Modules.sceLibUpdateDLModule, new String[] { "libupdown" }),
+        sceParseHttp(Modules.sceParseHttpModule, new String[] { "libparse_http" });
 
     	private HLEModule module;
     	private int firmwareVersionAsDefault;	// FirmwareVersion where the module is loaded by default
@@ -229,6 +246,7 @@ public class HLEModuleManager {
     		syscallCodeAllocator = 0x4000;
 
     		syscallCodeToFunction = new HLEModuleFunction[syscallCodeAllocator];
+    		allSyscallCodeToFunction = new HLEModuleFunction[syscallCodeAllocator];
     	} else {
     		// Remove all the functions.
     		// Do not reset the syscall codes, they still might be in use in
@@ -362,12 +380,18 @@ public class HLEModuleManager {
 
     private void addSyscallCodeToFunction(int code, HLEModuleFunction func) {
     	if (code >= syscallCodeToFunction.length) {
-    		// Extend the array
+    		// Extend the syscallCodeToFunction array
     		HLEModuleFunction[] extendedArray = new HLEModuleFunction[code + 100];
     		System.arraycopy(syscallCodeToFunction, 0, extendedArray, 0, syscallCodeToFunction.length);
     		syscallCodeToFunction = extendedArray;
+
+    		// Also extend allSyscallCodeToFunction
+    		extendedArray = new HLEModuleFunction[syscallCodeToFunction.length];
+    		System.arraycopy(allSyscallCodeToFunction, 0, extendedArray, 0, allSyscallCodeToFunction.length);
+    		allSyscallCodeToFunction = extendedArray;
     	}
     	syscallCodeToFunction[code] = func;
+    	allSyscallCodeToFunction[code] = func;
     }
 
     public void addFunction(int nid, HLEModuleFunction func) {
@@ -393,6 +417,14 @@ public class HLEModuleManager {
         }
     }
 
+    public HLEModuleFunction getAllFunctionFromSyscallCode(int code) {
+    	if (code < 0 || code >= allSyscallCodeToFunction.length) {
+    		return null;
+    	}
+
+    	return allSyscallCodeToFunction[code];
+    }
+
     public HLEModuleFunction getFunctionFromSyscallCode(int code) {
     	if (code < 0 || code >= syscallCodeToFunction.length) {
     		return null;
@@ -401,8 +433,8 @@ public class HLEModuleManager {
     	return syscallCodeToFunction[code];
     }
 
-    public String functionName(int code) {
-    	HLEModuleFunction func = getFunctionFromSyscallCode(code);
+    public String getAllFunctionNameFromSyscallCode(int code) {
+    	HLEModuleFunction func = getAllFunctionFromSyscallCode(code);
     	if (func == null) {
     		return null;
     	}
@@ -410,7 +442,50 @@ public class HLEModuleManager {
         return func.getFunctionName();
     }
 
-	public void startModules(boolean startFromSyscall) {
+    public int getAllFunctionSyscallCodeFromAddress(int address) {
+    	int code = NIDMapper.getInstance().overwrittenSyscallAddressToCode(address);
+
+    	if (code == -1) {
+    		// Verify if this not the address of a stub call:
+    		//   J   realAddress
+    		//   NOP
+        	Memory mem = Memory.getInstance();
+        	if ((mem.read32(address) >>> 26) == AllegrexOpcodes.J) {
+        		if (mem.read32(address + 4) == ThreadManForUser.NOP()) {
+        			int jumpAddress = (mem.read32(address) & 0x03FFFFFF) << 2;
+
+        			code = NIDMapper.getInstance().overwrittenSyscallAddressToCode(jumpAddress);
+        		}
+        	}
+    	}
+
+    	HLEModuleFunction func = getAllFunctionFromSyscallCode(code);
+    	if (func == null) {
+    		return -1;
+    	}
+
+    	return code;
+    }
+
+    public HLEModuleFunction getAllFunctionFromAddress(int address) {
+    	int code = getAllFunctionSyscallCodeFromAddress(address);
+    	if (code == -1) {
+    		return null;
+    	}
+
+    	return getAllFunctionFromSyscallCode(code);
+    }
+
+    public String getAllFunctionNameFromAddress(int address) {
+    	HLEModuleFunction func = getAllFunctionFromAddress(address);
+    	if (func == null) {
+    		return null;
+    	}
+
+    	return func.getFunctionName();
+    }
+
+    public void startModules(boolean startFromSyscall) {
 		if (modulesStarted) {
 			return;
 		}
@@ -460,13 +535,19 @@ public class HLEModuleManager {
 		// Take the module default logging if no HLELogging has been
 		// defined at the function level and if the function is not
 		// unimplemented (which will produce it's own logging).
-		if (hleLogging == null && hleUnimplemented == null) {
-			HLELogging hleModuleLogging = method.getDeclaringClass().getAnnotation(HLELogging.class);
-			if (hleModuleLogging != null) {
-				// Take the module default logging
-				hleLogging = hleModuleLogging;
+		if (hleLogging == null) {
+			if (hleUnimplemented != null) {
+				// Take the logging level of the HLEUnimplemented class
+				// as default value for unimplemented functions
+				hleLogging = HLEUnimplemented.class.getAnnotation(HLELogging.class);
 			} else {
-				hleLogging = defaultHLEFunctionLogging;
+				HLELogging hleModuleLogging = method.getDeclaringClass().getAnnotation(HLELogging.class);
+				if (hleModuleLogging != null) {
+					// Take the module default logging
+					hleLogging = hleModuleLogging;
+				} else {
+					hleLogging = defaultHLEFunctionLogging;
+				}
 			}
 		}
 

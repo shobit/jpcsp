@@ -489,9 +489,11 @@ public final String category() { return "MIPS I"; }
 public void interpret(Processor processor, int insn) {
 	int imm20 = (insn>>6)&1048575;
 
-
-                SyscallHandler.syscall(imm20);
-            
+	try {
+		SyscallHandler.syscall(imm20);
+	} catch (Exception e) {
+		Emulator.log.error("syscall", e);
+	}
 }
 @Override
 public void compile(ICompilerContext context, int insn) {
@@ -558,7 +560,7 @@ public final String category() { return "MIPS I"; }
 @Override
 public void interpret(Processor processor, int insn) {
 	int imm20 = (insn>>6)&1048575;
-	Emulator.log.error(String.format("Allegrex break 0x%05X", imm20));
+	Emulator.log.error(String.format("0x%08X - Allegrex break 0x%05X", processor.cpu.pc, imm20));
 
 	// Pause the emulator only if not ignoring invalid memory accesses
 	// (I'm too lazy to introduce a new configuration flag to ignore "break" instructions).
@@ -568,6 +570,7 @@ public void interpret(Processor processor, int insn) {
 }
 @Override
 public void compile(ICompilerContext context, int insn) {
+	context.storePc();
 	super.compile(context, insn);
 }
 @Override
