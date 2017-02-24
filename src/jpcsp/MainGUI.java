@@ -2913,7 +2913,6 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
             	logStart();
 	            setTitle(MetaInformation.FULL_NAME + " - VSH");
                 Modules.sceDisplayModule.setCalledFromCommandLine();
-                HTTPServer.processProxyRequestLocally = true;
                 loadFile(new File("flash0/vsh/module/vshmain.prx"), true);
 
             	ModuleMgrForUser moduleMgr = Modules.ModuleMgrForUserModule;

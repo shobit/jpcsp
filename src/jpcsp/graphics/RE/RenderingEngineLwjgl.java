@@ -56,6 +56,7 @@ import org.lwjgl.opengl.NVTextureBarrier;
  * An abstract RenderingEngine implementing calls to OpenGL using LWJGL. The
  * class contains no rendering logic, it just implements the interface to LWJGL.
  */
+@SuppressWarnings("deprecation")
 public class RenderingEngineLwjgl extends NullRenderingEngine {
 
     protected static final int[] flagToGL = {

@@ -4,24 +4,43 @@ bin/
 dist/
 #Settings
 Settings.properties
-.classpath
-.project
-*.dll
-*.txt
-*.properties
 #External software renderer dynamic link libraries
 lib/windows-x86/software-ge-renderer*.dll
 lib/windows-amd64/software-ge-renderer*.dll
 #Virtual memory stick
-ms0/PSP/SAVEDATA
+ms0/PSP/GAME/*
+!ms0/PSP/GAME/JpcspConnector/
+!ms0/PSP/GAME/pong/
+!ms0/PSP/GAME/SavedataTool/
 #UMD images
 umdimages/
-DecodeAudio.bat
-HIMDRENDER.exe
-tmp/
+.idea
+*.iml
+*.ipr
+*.iws
 #7-Zip binaries
 7-zip.dll
 7z.dll
 7z.exe
 7zFM.exe
 7zG.exe
+/nbproject/private/
+/build/
+profiler.txt
+tmp/*
+kprintf.txt
+log.txt
+export
+ms0
+.gradle
+step-trace.txt
+.settings
+/capture.bin
+/hs*.log
+/pspautotests
+/*Shot*.png
+/PARAM.SFO
+/Snap*.bin
+*.dll
+*.bat
+*.exe

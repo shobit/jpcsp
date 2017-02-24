@@ -154,7 +154,8 @@ public class BatteryUpdateThread extends Thread {
     // http://stackoverflow.com/questions/22128336/how-to-add-a-command-to-check-battery-level-in-linux-shell
     static class BatteryLinux {
         static private BatteryLinux INSTANCE = new BatteryLinux();
-        static private String FOLDER = "/sys/class/power_supply/BAT0";
+        @SuppressWarnings("unused")
+		static private String FOLDER = "/sys/class/power_supply/BAT0";
 
         static public BatteryLinux status() {
             return INSTANCE;
