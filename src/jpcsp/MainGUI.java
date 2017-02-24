@@ -16,17 +16,7 @@
  */
 package jpcsp;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.DisplayMode;
-import java.awt.EventQueue;
-import java.awt.GraphicsDevice;
-import java.awt.GraphicsEnvironment;
-import java.awt.Insets;
-import java.awt.Point;
-import java.awt.Rectangle;
-import java.awt.Window;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ComponentEvent;
@@ -49,17 +39,10 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.security.Security;
 import java.text.MessageFormat;
-import java.util.LinkedList;
+import java.util.*;
 import java.util.List;
 
-import javax.swing.JComponent;
-import javax.swing.JFileChooser;
-import javax.swing.JLabel;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import javax.swing.JPopupMenu;
-import javax.swing.ToolTipManager;
-import javax.swing.UIManager;
+import javax.swing.*;
 
 import jpcsp.Allegrex.compiler.Profiler;
 import jpcsp.Allegrex.compiler.RuntimeContext;
@@ -82,12 +65,9 @@ import jpcsp.GUI.UmdBrowser;
 import jpcsp.GUI.UmdVideoPlayer;
 import jpcsp.HLE.HLEModuleManager;
 import jpcsp.HLE.Modules;
-import jpcsp.HLE.TPointer;
-import jpcsp.HLE.kernel.types.SceKernelSMOption;
 import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.modules.IoFileMgrForUser;
-import jpcsp.HLE.modules.SysMemUserForUser;
-import jpcsp.HLE.modules.SysMemUserForUser.SysMemInfo;
+import jpcsp.HLE.modules.ModuleMgrForUser;
 import jpcsp.HLE.modules.sceDisplay;
 import jpcsp.HLE.modules.sceUtility;
 import jpcsp.filesystems.SeekableDataInput;
@@ -104,30 +84,13 @@ import jpcsp.log.LoggingOutputStream;
 import jpcsp.network.proonline.ProOnlineNetworkAdapter;
 import jpcsp.remote.HTTPServer;
 import jpcsp.settings.Settings;
-import jpcsp.util.JpcspDialogManager;
-import jpcsp.util.MetaInformation;
-import jpcsp.util.Utilities;
+import jpcsp.util.*;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.log4j.xml.DOMConfigurator;
 
 import com.jidesoft.plaf.LookAndFeelFactory;
-
-import java.awt.AWTEvent;
-import java.awt.Component;
-import java.awt.Toolkit;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Locale;
-import java.util.MissingResourceException;
-import java.util.ResourceBundle;
-
-import javax.swing.JMenu;
-import javax.swing.KeyStroke;
-import javax.swing.MenuElement;
-import javax.swing.SwingUtilities;
 
 import jpcsp.Debugger.FileLogger.FileLoggerFrame;
 import jpcsp.hardware.Model;
@@ -137,6 +100,10 @@ import jpcsp.hardware.Model;
  * @author shadow
  */
 public class MainGUI extends javax.swing.JFrame implements KeyListener, ComponentListener, MouseListener, IMainGUI {
+    static {
+        LWJGLFixer.fixOnce();
+    }
+
     private static final long serialVersionUID = -3647025845406693230L;
     private static Logger log = Emulator.log;
     public static final int MAX_RECENT = 10;
@@ -171,6 +138,7 @@ public class MainGUI extends javax.swing.JFrame implements KeyListener, Componen
     // map to hold action listeners for menu entries in fullscreen mode
     private HashMap<KeyStroke, ActionListener[]> actionListenerMap;
     private boolean doUmdBuffering = false;
+    private boolean runFromVsh = false;
 
     @Override
     public DisplayMode getDisplayMode() {
@@ -264,6 +232,17 @@ public class MainGUI extends javax.swing.JFrame implements KeyListener, Componen
         });
 
         WindowPropSaver.loadWindowProperties(this);
+
+        try {
+            Image iconImage = new ImageIcon(ClassLoader.getSystemClassLoader().getResource("jpcsp/icon.png")).getImage();
+            this.setIconImages(Arrays.asList(
+                    iconImage.getScaledInstance(16, 16, Image.SCALE_SMOOTH),
+                    iconImage.getScaledInstance(32, 32, Image.SCALE_SMOOTH),
+                    iconImage
+            ));
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
     }
 
     private Dimension getDimensionFromDisplay(int width, int height) {
@@ -1476,7 +1455,15 @@ private void OpenFileActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRS
         if (userChooseSomething(returnVal)) {
             Settings.getInstance().writeString("gui.lastOpenedFileFolder", fc.getSelectedFile().getParent());
             File file = fc.getSelectedFile();
-            loadFile(file);
+            switch (FileUtil.getExtension(file)) {
+                case "iso":
+                case "cso":
+                    loadUMD(file);
+                    break;
+                default:
+                    loadFile(file);
+                    break;
+            }
         }
 }//GEN-LAST:event_OpenFileActionPerformed
 
@@ -1504,6 +1491,10 @@ private void OpenFileActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRS
     }
 
     public void loadFile(File file) {
+    	loadFile(file, false);
+    }
+
+    public void loadFile(File file, boolean isInternal) {
         java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("jpcsp/languages/jpcsp"); // NOI18N
         Model.setModel(Settings.getInstance().readInt("emu.model"));
 
@@ -1547,23 +1538,31 @@ private void OpenFileActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRS
             }
             raf.close();
 
-            PSF psf = module.psf;
-            String title;
-            String discId = State.DISCID_UNKNOWN_FILE;
             boolean isHomebrew;
-            if (psf != null) {
-                title = psf.getPrintableString("TITLE");
-                discId = psf.getString("DISC_ID");
-                if (discId == null) {
-                    discId = State.DISCID_UNKNOWN_FILE;
-                }
-                isHomebrew = psf.isLikelyHomebrew();
+            if (isInternal) {
+            	isHomebrew = false;
             } else {
-                title = file.getParentFile().getName();
-                isHomebrew = true; // missing psf, assume homebrew
+	            PSF psf = module.psf;
+	            String title;
+	            String discId = State.DISCID_UNKNOWN_FILE;
+	            if (psf != null) {
+	                title = psf.getPrintableString("TITLE");
+	                discId = psf.getString("DISC_ID");
+	                if (discId == null) {
+	                    discId = State.DISCID_UNKNOWN_FILE;
+	                }
+	                isHomebrew = psf.isLikelyHomebrew();
+	            } else {
+	                title = file.getParentFile().getName();
+	                isHomebrew = true; // missing psf, assume homebrew
+	            }
+	            setTitle(MetaInformation.FULL_NAME + " - " + title);
+	            addRecentFile(file, title);
+
+	            RuntimeContext.setIsHomebrew(isHomebrew);
+	            State.discId = discId;
+	            State.title = title;
             }
-            setTitle(MetaInformation.FULL_NAME + " - " + title);
-            addRecentFile(file, title);
 
             // Strip off absolute file path if the file is inside our ms0 directory
             String filepath = file.getParent();
@@ -1576,14 +1575,12 @@ private void OpenFileActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRS
             Modules.IoFileMgrForUserModule.setIsoReader(null);
             jpcsp.HLE.Modules.sceUmdUserModule.setIsoReader(null);
 
-            RuntimeContext.setIsHomebrew(isHomebrew);
-            State.discId = discId;
-            State.title = title;
-
-            if (!isHomebrew) {
+            if (!isHomebrew && !isInternal) {
                 Settings.getInstance().loadPatchSettings();
             }
-            logConfigurationSettings();
+            if (!runFromVsh) {
+            	logStart();
+            }
 
             if (instructioncounter != null) {
                 instructioncounter.RefreshWindow();
@@ -1757,9 +1754,12 @@ private void formWindowClosing(java.awt.event.WindowEvent evt) {//GEN-FIRST:even
 }//GEN-LAST:event_formWindowClosing
 
 private void openUmdActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_openUmdActionPerformed
-        PauseEmu();
+		if (!runFromVsh) {
+			PauseEmu();
+		}
+
         if (Settings.getInstance().readBool("emu.umdbrowser")) {
-            umdbrowser = new UmdBrowser(this, getUmdPaths());
+            umdbrowser = new UmdBrowser(this, getUmdPaths(false));
             umdbrowser.setVisible(true);
         } else {
             final JFileChooser fc = makeJFileChooser();
@@ -1774,15 +1774,14 @@ private void openUmdActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             if (userChooseSomething(returnVal)) {
                 Settings.getInstance().writeString("gui.lastOpenedUmdFolder", fc.getSelectedFile().getParent());
                 File file = fc.getSelectedFile();
-                loadUMD(file);
-                loadAndRun();
+                loadAndRunUMD(file);
             }
         }
 }//GEN-LAST:event_openUmdActionPerformed
 
 private void switchUmdActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_switchUmdActionPerformed
         if (Settings.getInstance().readBool("emu.umdbrowser")) {
-            umdbrowser = new UmdBrowser(this, getUmdPaths());
+            umdbrowser = new UmdBrowser(this, getUmdPaths(false));
             umdbrowser.setSwitchingUmd(true);
             umdbrowser.setVisible(true);
         } else {
@@ -1868,31 +1867,46 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
         return false;
     }
 
+    public void loadAndRunUMD(File file) {
+		loadUMD(file);
+
+		if (!runFromVsh) {
+    		loadAndRun();
+    	}
+    }
+
     public void loadUMD(File file) {
     	String filePath = file == null ? null : file.getPath();
         UmdIsoReader.setDoIsoBuffering(doUmdBuffering);
         Model.setModel(Settings.getInstance().readInt("emu.model"));
 
         UmdIsoReader iso = null;
+        boolean closeIso = false;
 		try {
 			iso = new UmdIsoReader(filePath);
-	        if (iso.hasFile("PSP_GAME/param.sfo")) {
-	        	loadUMDGame(file);
-	        } else if (iso.hasFile("UMD_VIDEO/param.sfo")) {
-	        	loadUMDVideo(file);
-	        } else if (iso.hasFile("UMD_AUDIO/param.sfo")) {
-	        	loadUMDAudio(file);
-	        } else {
-	        	// EBOOT.PBP contains an ELF file?
-	        	byte[] pspData = iso.readPspData();
-	        	if (pspData != null) {
-	        		loadFile(file);
-	        	}
-	        }
+			logStartIso(iso);
+			if (runFromVsh) {
+	            Modules.sceUmdUserModule.hleUmdSwitch(iso);
+			} else {
+				closeIso = true;
+		        if (iso.hasFile("PSP_GAME/param.sfo")) {
+		        	loadUMDGame(file);
+		        } else if (iso.hasFile("UMD_VIDEO/param.sfo")) {
+		        	loadUMDVideo(file);
+		        } else if (iso.hasFile("UMD_AUDIO/param.sfo")) {
+		        	loadUMDAudio(file);
+		        } else {
+		        	// EBOOT.PBP contains an ELF file?
+		        	byte[] pspData = iso.readPspData();
+		        	if (pspData != null) {
+		        		loadFile(file);
+		        	}
+		        }
+			}
 		} catch (IOException e) {
 			// Ignore exception
 		} finally {
-			if (iso != null) {
+			if (closeIso) {
 				try {
 					iso.close();
 				} catch (IOException e) {
@@ -1911,10 +1925,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
 
             log.info(String.format("Switching to the UMD %s", file));
 
-            Modules.IoFileMgrForUserModule.setIsoReader(iso);
-            Modules.sceUmdUserModule.setIsoReader(iso);
-
-            Modules.sceUmdUserModule.hleUmdSwitch();
+            Modules.sceUmdUserModule.hleUmdSwitch(iso);
         } catch (FileNotFoundException e) {
             // Ignore.
         } catch (IOException ioe) {
@@ -1929,8 +1940,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             if (State.logWindow != null) {
                 State.logWindow.clearScreenMessages();
             }
-            log.info(String.format("Java version: %s (%s)", System.getProperty("java.version"), System.getProperty("java.runtime.version")));
-            log.info(String.format("Java library path: %s", System.getProperty("java.library.path")));
+            logStart();
 
             Modules.SysMemUserForUserModule.reset();
             log.info(MetaInformation.FULL_NAME);
@@ -1939,6 +1949,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             loadedFile = file;
 
             UmdIsoReader iso = new UmdIsoReader(filePath);
+
             UmdIsoFile psfFile = iso.getFile("PSP_GAME/param.sfo");
 
             PSF psf = new PSF();
@@ -1946,7 +1957,6 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             psfFile.read(data);
             psf.read(ByteBuffer.wrap(data));
 
-            log.info("UMD param.sfo :\n" + psf);
             String title = psf.getPrintableString("TITLE");
             String discId = psf.getString("DISC_ID");
             String titleFormat = "%s - %s";
@@ -1976,7 +1986,6 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
                     umdDataBin.readFully(buffer);
                     umdDataBin.close();
                     String umdDataBinContent = new String(buffer).replace((char) 0, ' ');
-                    log.info(String.format("Content of UMD_DATA.BIN: '%s'", umdDataBinContent));
 
                     String[] parts = umdDataBinContent.split("\\|");
                     if (parts != null && parts.length >= 2) {
@@ -2014,12 +2023,10 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
 
                 State.title = title;
 
-                logConfigurationSettings();
-
                 Modules.IoFileMgrForUserModule.setfilepath("disc0/");
 
                 Modules.IoFileMgrForUserModule.setIsoReader(iso);
-                jpcsp.HLE.Modules.sceUmdUserModule.setIsoReader(iso);
+                Modules.sceUmdUserModule.setIsoReader(iso);
 
                 if (instructioncounter != null) {
                     instructioncounter.RefreshWindow();
@@ -2054,6 +2061,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             if (State.logWindow != null) {
                 State.logWindow.clearScreenMessages();
             }
+            logStart();
             Modules.SysMemUserForUserModule.reset();
             log.info(MetaInformation.FULL_NAME);
 
@@ -2069,7 +2077,6 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             psfFile.read(data);
             psf.read(ByteBuffer.wrap(data));
 
-            log.info("UMD param.sfo :\n" + psf);
             String title = psf.getPrintableString("TITLE");
             String discId = psf.getString("DISC_ID");
             if (discId == null) {
@@ -2094,8 +2101,6 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             State.discId = discId;
             State.title = title;
 
-            logConfigurationSettings();
-
             umdvideoplayer = new UmdVideoPlayer(this, iso);
 
             Modules.IoFileMgrForUserModule.setfilepath("disc0/");
@@ -2116,6 +2121,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             if (State.logWindow != null) {
                 State.logWindow.clearScreenMessages();
             }
+            logStart();
             Modules.SysMemUserForUserModule.reset();
             log.info(MetaInformation.FULL_NAME);
 
@@ -2130,7 +2136,6 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
             psfFile.read(data);
             psf.read(ByteBuffer.wrap(data));
 
-            log.info("UMD param.sfo :\n" + psf);
             String title = psf.getPrintableString("TITLE");
             String discId = psf.getString("DISC_ID");
             if (discId == null) {
@@ -2146,8 +2151,6 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
 
             State.discId = discId;
             State.title = title;
-
-            logConfigurationSettings();
         } catch (IllegalArgumentException iae) {
             // Ignore...
         } catch (Exception ex) {
@@ -2211,6 +2214,55 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
         // jog here only in the English locale
         java.util.ResourceBundle bundle = java.util.ResourceBundle.getBundle("jpcsp/languages/jpcsp", new Locale("en"));
         log.info(String.format("%s / %s", bundle.getString("SettingsGUI.title"), bundle.getString(resourceKey)));
+    }
+
+    private void logStart() {
+        log.info(String.format("Java version: %s (%s)", System.getProperty("java.version"), System.getProperty("java.runtime.version")));
+        log.info(String.format("Java library path: %s", System.getProperty("java.library.path")));
+
+        logConfigurationSettings();
+    }
+
+    private void logStartIso(UmdIsoReader iso) {
+    	if (!log.isInfoEnabled()) {
+    		return;
+    	}
+
+    	String[] paramSfoFiles = new String[] {
+        		"PSP_GAME/param.sfo",
+        		"UMD_VIDEO/param.sfo",
+        		"UMD_AUDIO/param.sfo"
+        };
+        for (String paramSfoFile : paramSfoFiles) {
+        	if (iso.hasFile(paramSfoFile)) {
+        		try {
+	    			UmdIsoFile psfFile = iso.getFile(paramSfoFile);
+	    	        PSF psf = new PSF();
+	    	        byte[] data = new byte[(int) psfFile.length()];
+	    	        psfFile.read(data);
+	    	        psf.read(ByteBuffer.wrap(data));
+
+	    	        log.info(String.format("Content of %s:\n%s", paramSfoFile, psf));
+        		} catch (IOException e) {
+        			// Ignore exception
+        		}
+        	}
+        }
+
+        try {
+            UmdIsoFile umdDataBin = iso.getFile("UMD_DATA.BIN");
+            if (umdDataBin != null) {
+                byte[] buffer = new byte[(int) umdDataBin.length()];
+                umdDataBin.readFully(buffer);
+                umdDataBin.close();
+                String umdDataBinContent = new String(buffer).replace((char) 0, ' ');
+                log.info(String.format("Content of UMD_DATA.BIN: '%s'", umdDataBinContent));
+            }
+        } catch (FileNotFoundException e) {
+            // Ignore exception
+		} catch (IOException e) {
+            // Ignore exception
+        }
     }
 
     private void logConfigurationSettings() {
@@ -2762,7 +2814,7 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
         }
     }
 
-    public static File[] getUmdPaths() {
+    public static File[] getUmdPaths(boolean ignorePSPGame) {
         List<File> umdPaths = new LinkedList<File>();
         umdPaths.add(new File(Settings.getInstance().readString("emu.umdpath") + "/"));
         for (int i = 1; true; i++) {
@@ -2770,7 +2822,10 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
             if (umdPath == null) {
                 break;
             }
-            umdPaths.add(new File(umdPath + "/"));
+
+            if (!ignorePSPGame || !umdPath.equals("ms0\\PSP\\GAME")) {
+            	umdPaths.add(new File(umdPath + "/"));
+            }
         }
 
         return umdPaths.toArray(new File[umdPaths.size()]);
@@ -2854,44 +2909,25 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
             } else if (args[i].equals("--ProOnline")) {
                 ProOnlineNetworkAdapter.setEnabled(true);
             } else if (args[i].equals("--vsh")) {
+            	runFromVsh = true;
+            	logStart();
+	            setTitle(MetaInformation.FULL_NAME + " - VSH");
                 Modules.sceDisplayModule.setCalledFromCommandLine();
-            	loadFile(new File("flash0/vsh/module/vshmain.prx"));
+                HTTPServer.processProxyRequestLocally = true;
+                loadFile(new File("flash0/vsh/module/vshmain.prx"), true);
 
-            	final int startOptionsSize = 20;
-            	SysMemInfo startOptionsMem = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.KERNEL_PARTITION_ID, "ModuleStartOptions", SysMemUserForUser.PSP_SMEM_Low, startOptionsSize, 0);
-            	TPointer startOptions = new TPointer(Memory.getInstance(), startOptionsMem.addr);
-            	startOptions.setValue32(startOptionsSize);
-            	SceKernelSMOption sceKernelSMOption = new SceKernelSMOption();
-            	sceKernelSMOption.mpidStack = 0;
-            	sceKernelSMOption.stackSize = 0;
-            	sceKernelSMOption.attribute = 0;
+            	ModuleMgrForUser moduleMgr = Modules.ModuleMgrForUserModule;
 
-            	// Use different start thread priorities to enforce the start order
-            	sceKernelSMOption.priority = 0x12;
-            	sceKernelSMOption.write(startOptions);
-            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/kd/vshbridge.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
-
-            	sceKernelSMOption.priority = 0x14;
-            	sceKernelSMOption.write(startOptions);
-            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/vsh/module/paf.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
-
-            	sceKernelSMOption.priority = 0x16;
-            	sceKernelSMOption.write(startOptions);
-            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/vsh/module/common_gui.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
-
-            	sceKernelSMOption.priority = 0x18;
-            	sceKernelSMOption.write(startOptions);
-            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/vsh/module/common_util.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
-
-            	sceKernelSMOption.priority = 0x1A;
-            	sceKernelSMOption.write(startOptions);
-            	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule("flash0:/kd/mesg_led_01g.prx", 0, 0, 0, 0, null, false, false, 0, TPointer.NULL, startOptions);
+            	// Use increasing start thread priorities to enforce the start order
+            	int startPriority = 0x11;
+            	moduleMgr.hleKernelLoadAndStartModule("flash0:/kd/vshbridge.prx", startPriority++);
+            	moduleMgr.hleKernelLoadAndStartModule("flash0:/vsh/module/paf.prx", startPriority++);
+            	moduleMgr.hleKernelLoadAndStartModule("flash0:/vsh/module/common_gui.prx", startPriority++);
+            	moduleMgr.hleKernelLoadAndStartModule("flash0:/vsh/module/common_util.prx", startPriority++);
 
             	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_VAUDIO");
             	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_ATRAC3PLUS");
             	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_AVCODEC");
-
-            	Modules.SysMemUserForUserModule.free(startOptionsMem);
             } else {
                 printUsage();
                 break;

@@ -16,10 +16,14 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.HLE.modules;
 
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
 import jpcsp.HLE.HLEUnimplemented;
+import jpcsp.HLE.PspString;
 import jpcsp.HLE.SceKernelErrorException;
 import jpcsp.HLE.TPointer;
 import jpcsp.HLE.TPointer32;
@@ -312,7 +316,7 @@ public class sceNpService extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x5B74DE06, version = 150)
-    public int sceNpService_5B74DE06() {
+    public int sceNpService_5B74DE06(PspString onlineId) {
     	return 0;
     }
 
@@ -342,7 +346,7 @@ public class sceNpService extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x7EF4312E, version = 150)
-    public int sceNpService_7EF4312E() {
+    public int sceNpService_7EF4312E(@BufferInfo(lengthInfo=LengthInfo.fixedLength, length=16, usage=Usage.in) TPointer onlineId, int unknown1, int unknown2) {
     	return 0;
     }
 

@@ -22,6 +22,9 @@ import java.util.Map;
 
 import org.apache.log4j.Logger;
 
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
 import jpcsp.HLE.HLEUnimplemented;
@@ -30,6 +33,7 @@ import jpcsp.HLE.TPointer;
 import jpcsp.HLE.TPointer32;
 import jpcsp.HLE.kernel.managers.SceUidManager;
 import jpcsp.HLE.modules.sceFont.FontRegistryEntry;
+import jpcsp.settings.Settings;
 import jpcsp.util.Utilities;
 
 public class sceReg extends HLEModule {
@@ -47,6 +51,8 @@ public class sceReg extends HLEModule {
     private String authKey;
     private int networkLatestId;
     private int wifiConnectCount;
+    private int usbConnectCount;
+    private int psnAccountCount;
     private int oskVersionId;
     private int oskDispLocale;
     private int oskWritingLocale;
@@ -58,6 +64,15 @@ public class sceReg extends HLEModule {
     private int themeColorMode;
     private int themeWallpaperMode;
     private int themeSystemColor;
+    private int musicVisualizerMode;
+    private int musicTrackInfoMode;
+    private String lockPassword;
+    private String browserHomeUri;
+    private String npAccountId;
+    private String npLoginId;
+    private String npPassword;
+    private int npAutoSignInEnable;
+    private String ownerName;
 
     protected static class RegistryHandle {
     	private static final String registryHandlePurpose = "sceReg.RegistryHandle";
@@ -140,7 +155,15 @@ public class sceReg extends HLEModule {
 		this.networkLatestId = networkLatestId;
 	}
 
-    private int getKey(CategoryHandle categoryHandle, String name, TPointer32 ptype, TPointer32 psize, TPointer buf, int size) {
+	public String getNpLoginId() {
+		return npLoginId;
+	}
+
+	public String getNpPassword() {
+		return npPassword;
+	}
+
+	private int getKey(CategoryHandle categoryHandle, String name, TPointer32 ptype, TPointer32 psize, TPointer buf, int size) {
     	String fullName = categoryHandle.getFullName();
     	fullName = fullName.replace("flash1:/registry/system", "");
 
@@ -280,6 +303,165 @@ public class sceReg extends HLEModule {
     			if (size >= 4) {
     				buf.setValue32(0);
     			}
+    		} else if ("time_zone_offset".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("time_zone_area".equals(name)) {
+    			String timeZoneArea = "united_kingdom";
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(timeZoneArea.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, timeZoneArea);
+    			}
+    		} else if ("summer_time".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/BROWSER".equals(fullName)) {
+    		if ("flash_activated".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("home_uri".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(0x200);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, browserHomeUri);
+    			}
+    		} else if ("cookie_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("proxy_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(2);
+    			}
+    		} else if ("proxy_address".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(0x80);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, "");
+    			}
+    		} else if ("proxy_port".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("picture".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("animation".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("javascript".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("cache_size".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0x200); // Cache Size in KB
+    			}
+    		} else if ("char_size".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("disp_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("flash_play".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("connect_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("proxy_protect".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("proxy_autoauth".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("proxy_user".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(0x80);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, "");
+    			}
+    		} else if ("proxy_password".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(0x80);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, "");
+    			}
+    		} else if ("webpage_quality".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/BROWSER2".equals(fullName)) {
+    		if ("tm_service".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("tm_ec_ttl".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("tm_ec_ttl_update_time".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
@@ -287,8 +469,26 @@ public class sceReg extends HLEModule {
     		if ("account_id".equals(name)) {
     			ptype.setValue(REG_TYPE_BIN);
     			psize.setValue(16);
-    			if (size >= 16) {
-    				buf.clear(16);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, npAccountId);
+    			}
+    		} else if ("login_id".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(npLoginId.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, npLoginId);
+    			}
+    		} else if ("password".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(npPassword.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, npPassword);
+    			}
+    		} else if ("auto_sign_in_enable".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(npAutoSignInEnable);
     			}
     		} else if ("nav_only".equals(name)) {
     			ptype.setValue(REG_TYPE_INT);
@@ -302,21 +502,126 @@ public class sceReg extends HLEModule {
     			if (size > 0) {
     				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, npEnv);
     			}
+    		} else if ("guest_country".equals(name)) {
+    			String guestCount = "";
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(guestCount.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, guestCount);
+    			}
+    		} else if ("view_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
     	} else if ("/CONFIG/PREMO".equals(fullName)) {
     		if ("ps3_mac".equals(name)) {
+    			byte ps3Mac[] = new byte[6];
+    			ps3Mac[0] = 0x11;
+    			ps3Mac[1] = 0x22;
+    			ps3Mac[2] = 0x33;
+    			ps3Mac[3] = 0x44;
+    			ps3Mac[4] = 0x55;
+    			ps3Mac[5] = 0x66;
     			ptype.setValue(REG_TYPE_BIN);
-    			psize.setValue(6);
-    			if (size >= 6) {
-    				buf.clear(6);
+    			psize.setValue(ps3Mac.length);
+    			if (size > 0) {
+    				buf.setArray(ps3Mac, ps3Mac.length);
     			}
     		} else if ("ps3_name".equals(name)) {
+    			String ps3Name = "My PS3";
     			ptype.setValue(REG_TYPE_STR);
-    			psize.setValue(1);
-    			if (size >= 1) {
-        			buf.clear(1);
+    			psize.setValue(ps3Name.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, ps3Name);
+    			}
+    		} else if ("guide_page".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("response".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("custom_video_buffer1".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("custom_video_bitrate1".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("setting_internet".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("custom_video_buffer2".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("custom_video_bitrate2".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("button_assign".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("ps3_keytype".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("ps3_key".equals(name)) {
+    			ptype.setValue(REG_TYPE_BIN);
+    			psize.setValue(16);
+    			if (size >= 16) {
+    				buf.clear(16);
+    			}
+    		} else if ("flags".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("account_id".equals(name)) {
+    			ptype.setValue(REG_TYPE_BIN);
+    			psize.setValue(16);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, npAccountId);
+    			}
+    		} else if ("login_id".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(npLoginId.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, npLoginId);
+    			}
+    		} else if ("password".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(npPassword.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, npPassword);
     			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
@@ -340,6 +645,24 @@ public class sceReg extends HLEModule {
     			if (size >= 4) {
         			buf.setValue32(1);
     			}
+    		} else if ("owner_mob".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("owner_dob".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
+    		} else if ("owner_name".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(ownerName.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, ownerName);
+    			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
@@ -356,6 +679,12 @@ public class sceReg extends HLEModule {
     			if (size >= 4) {
         			buf.setValue32(1);
     			}
+    		} else if ("avls".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
@@ -365,6 +694,12 @@ public class sceReg extends HLEModule {
     			psize.setValue(4);
     			if (size >= 4) {
     				buf.setValue32(5);
+    			}
+    		} else if ("ansi".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0x13);
     			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
@@ -506,11 +841,57 @@ public class sceReg extends HLEModule {
     			if (size >= 4) {
     				buf.setValue32(wifiConnectCount);
     			}
+    		} else if (name.equals("usb_connect_count")) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(usbConnectCount);
+    			}
+    		} else if (name.equals("psn_access_count")) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(psnAccountCount);
+    			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
     	} else if ("/CONFIG/SYSTEM/LOCK".equals(fullName)) {
     		if ("parental_level".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("browser_start".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("password".equals(name)) {
+    			ptype.setValue(REG_TYPE_BIN);
+    			psize.setValue(lockPassword.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, lockPassword);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/SYSTEM/POWER_SAVING".equals(fullName)) {
+    		if ("backlight_off_interval".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("suspend_interval".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("wlan_mode".equals(name)) {
     			ptype.setValue(REG_TYPE_INT);
     			psize.setValue(4);
     			if (size >= 4) {
@@ -573,6 +954,197 @@ public class sceReg extends HLEModule {
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
+    	} else if ("/CONFIG/MUSIC".equals(fullName)) {
+    		if ("visualizer_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(musicVisualizerMode);
+    			}
+    		} else if (name.equals("track_info_mode")) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(musicTrackInfoMode);
+    			}
+    		} else if (name.equals("wma_play")) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/PHOTO".equals(fullName)) {
+    		if ("slideshow_speed".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/VIDEO".equals(fullName)) {
+    		if ("lr_button_enable".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("list_play_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("title_display_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("sound_language".equals(name)) {
+    			ptype.setValue(REG_TYPE_BIN);
+    			psize.setValue(2);
+    			if (size >= 2) {
+    				buf.setValue8(0, (byte) '0');
+    				buf.setValue8(1, (byte) '0');
+    			}
+    		} else if ("subtitle_language".equals(name)) {
+    			ptype.setValue(REG_TYPE_BIN);
+    			psize.setValue(2);
+    			if (size >= 2) {
+    				buf.setValue8(0, (byte) 'e');
+    				buf.setValue8(1, (byte) 'n');
+    			}
+    		} else if ("menu_language".equals(name)) {
+    			ptype.setValue(REG_TYPE_BIN);
+    			psize.setValue(2);
+    			if (size >= 2) {
+    				buf.setValue8(0, (byte) 'e');
+    				buf.setValue8(1, (byte) 'n');
+    			}
+    		} else if ("appended_volume".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/INFOBOARD".equals(fullName)) {
+    		if ("locale_lang".equals(name)) {
+    			String localeLang = "en/en/rss.xml";
+    			ptype.setValue(REG_TYPE_STR);
+    			psize.setValue(localeLang.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, localeLang);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/CAMERA".equals(fullName)) {
+    		if ("still_size".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("still_quality".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("movie_size".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("movie_quality".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("white_balance".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("exposure_bias".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("still_effect".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("file_folder".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0x65);
+    			}
+    		} else if ("file_number".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("movie_fps".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("shutter_sound_mode".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else if ("file_number_eflash".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(1);
+    			}
+    		} else if ("folder_number_eflash".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0x65);
+    			}
+    		} else if ("msid".equals(name)) {
+    			String msid = "";
+    			ptype.setValue(REG_TYPE_BIN);
+    			psize.setValue(16);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, msid);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/RSS".equals(fullName)) {
+    		if ("download_items".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(5);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
     	} else {
 			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     	}
@@ -587,10 +1159,12 @@ public class sceReg extends HLEModule {
 		keyHandles = new HashMap<Integer, sceReg.KeyHandle>();
 
 		// TODO Read these values from the configuration file
+		Settings settings = Settings.getInstance();
 		authName = "";
 		authKey = "";
 		networkLatestId = 0;
 		wifiConnectCount = 0;
+		usbConnectCount = 0;
 	    oskVersionId = 0x226;
 	    oskDispLocale = 0x1;
 	    oskWritingLocale = 0x1;
@@ -602,6 +1176,15 @@ public class sceReg extends HLEModule {
 	    themeColorMode = 0;
 	    themeCustomThemeCode = 0;
 	    themeSystemColor = 0;
+	    musicVisualizerMode = 0;
+	    musicTrackInfoMode = 1;
+	    lockPassword = "0000"; // 4-digit password
+	    browserHomeUri = "";
+	    npAccountId = settings.readString("registry.npAccountId");
+	    npLoginId = settings.readString("registry.npLoginId");
+	    npPassword = settings.readString("registry.npPassword");
+	    npAutoSignInEnable = settings.readInt("registry.npAutoSignInEnable");
+		ownerName = "Jpcsp";
 
 		super.start();
 	}
@@ -774,6 +1357,7 @@ public class sceReg extends HLEModule {
     	}
     	fullName = fullName.replace("flash1:/registry/system", "");
 
+    	Settings settings = Settings.getInstance();
     	if ("/system/DATA/FONT".equals(fullName)) {
     		if ("path_name".equals(name)) {
     			String fontDirPath = buf.getStringNZ(size);
@@ -837,8 +1421,12 @@ public class sceReg extends HLEModule {
     	} else if ("/DATA/COUNT".equals(fullName)) {
     		if ("wifi_connect_count".equals(name) && size >= 4) {
     			wifiConnectCount = buf.getValue32();
+    		} else if ("usb_connect_count".equals(name) && size >= 4) {
+    			usbConnectCount = buf.getValue32();
+    		} else if ("psn_access_count".equals(name) && size >= 4) {
+    			psnAccountCount = buf.getValue32();
     		} else {
-    			log.warn(String.format("Unknown font registry entry '%s'", name));
+    			log.warn(String.format("Unknown registry entry '%s'", name));
     		}
     	} else if ("/CONFIG/OSK".equals(fullName)) {
     		if ("version_id".equals(name) && size >= 4) {
@@ -852,31 +1440,89 @@ public class sceReg extends HLEModule {
     		} else if (name.equals("keytop_index") && size >= 4) {
     			oskKeytopIndex = buf.getValue32();
     		} else {
-    			log.warn(String.format("Unknown font registry entry '%s'", name));
+    			log.warn(String.format("Unknown registry entry '%s'", name));
     		}
     	} else if ("/CONFIG/NP".equals(fullName)) {
     		if ("env".equals(name)) {
     			npEnv = buf.getStringNZ(size);
+    		} else if ("account_id".equals(name)) {
+    			npAccountId = buf.getStringNZ(size);
+    			settings.writeString("registry.npAccountId", npAccountId);
+    		} else if ("login_id".equals(name)) {
+    			npLoginId = buf.getStringNZ(size);
+    			settings.writeString("registry.npLoginId", npLoginId);
+    		} else if ("password".equals(name)) {
+    			npPassword = buf.getStringNZ(size);
+    			settings.writeString("registry.npPassword", npPassword);
+    		} else if ("auto_sign_in_enable".equals(name) && size >= 4) {
+    			npAutoSignInEnable = buf.getValue32();
+    			settings.writeInt("registry.npAutoSignInEnable", npAutoSignInEnable);
     		} else {
-    			log.warn(String.format("Unknown font registry entry '%s'", name));
+    			log.warn(String.format("Unknown registry entry '%s'", name));
     		}
     	} else if ("/CONFIG/NETWORK/ADHOC".equals(fullName)) {
     		if ("ssid_prefix".equals(name)) {
     			adhocSsidPrefix = buf.getStringNZ(size);
     		} else {
-    			log.warn(String.format("Unknown font registry entry '%s'", name));
+    			log.warn(String.format("Unknown registry entry '%s'", name));
+    		}
+    	} else if ("/CONFIG/SYSTEM".equals(fullName)) {
+    		if ("owner_name".equals(name)) {
+    			ownerName = buf.getStringNZ(size);
     		}
     	} else if ("/CONFIG/SYSTEM/XMB/THEME".equals(fullName)) {
-    		if ("custom_theme_mode".equals(name)) {
+    		if ("custom_theme_mode".equals(name) && size >= 4) {
     			themeCustomThemeCode = buf.getValue32();
-    		} else if ("color_mode".equals(name)) {
+    		} else if ("color_mode".equals(name) && size >= 4) {
     			themeColorMode = buf.getValue32();
-    		} else if ("wallpaper_mode".equals(name)) {
+    		} else if ("wallpaper_mode".equals(name) && size >= 4) {
     			themeWallpaperMode = buf.getValue32();
-    		} else if ("system_color".equals(name)) {
+    		} else if ("system_color".equals(name) && size >= 4) {
     			themeSystemColor = buf.getValue32();
     		} else {
-    			log.warn(String.format("Unknown font registry entry '%s'", name));
+    			log.warn(String.format("Unknown registry entry '%s'", name));
+    		}
+    	} else if ("/CONFIG/MUSIC".equals(fullName)) {
+    		if ("visualizer_mode".equals(name) && size >= 4) {
+    			musicVisualizerMode = buf.getValue32();
+    		} else if (name.equals("track_info_mode") && size >= 4) {
+    			musicTrackInfoMode = buf.getValue32();
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if ("/CONFIG/CAMERA".equals(fullName)) {
+    		if ("msid".equals(name) && size >= 0) {
+    			String msid = buf.getStringNZ(16);
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("sceRegSetKeyValue msid='%s'", msid));
+    			}
+    		} else if (name.equals("file_folder") && size >= 4) {
+    			int fileFolder = buf.getValue32();
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("sceRegSetKeyValue fileFolder=0x%X", fileFolder));
+    			}
+    		} else if (name.equals("file_number") && size >= 4) {
+    			int fileNumber = buf.getValue32();
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("sceRegSetKeyValue fileNumber=0x%X", fileNumber));
+    			}
+    		} else if (name.equals("movie_quality") && size >= 4) {
+    			int movieQuality = buf.getValue32();
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("sceRegSetKeyValue movieQuality=0x%X", movieQuality));
+    			}
+    		} else if (name.equals("movie_size") && size >= 4) {
+    			int movieSize = buf.getValue32();
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("sceRegSetKeyValue movieSize=0x%X", movieSize));
+    			}
+    		} else if (name.equals("movie_fps") && size >= 4) {
+    			int movieFps = buf.getValue32();
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("sceRegSetKeyValue movieFps=0x%X", movieFps));
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
     	} else {
 			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
@@ -886,7 +1532,7 @@ public class sceReg extends HLEModule {
     }
 
     @HLEFunction(nid = 0xD4475AA8, version = 150)
-    public int sceRegGetKeyInfo(int hd, String name, TPointer32 hk, TPointer32 ptype, TPointer32 psize) {
+    public int sceRegGetKeyInfo(int hd, String name, TPointer32 hk, @BufferInfo(usage=Usage.out) TPointer32 ptype, @BufferInfo(usage=Usage.out) TPointer32 psize) {
     	CategoryHandle categoryHandle = categoryHandles.get(hd);
     	if (categoryHandle == null) {
     		return -1;
@@ -901,7 +1547,7 @@ public class sceReg extends HLEModule {
     }
 
     @HLEFunction(nid = 0x28A8E98A, version = 150)
-    public int sceRegGetKeyValue(int hd, int hk, TPointer buf, int size) {
+    public int sceRegGetKeyValue(int hd, int hk, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.out) TPointer buf, int size) {
     	CategoryHandle categoryHandle = categoryHandles.get(hd);
     	if (categoryHandle == null) {
     		return -1;
@@ -942,7 +1588,7 @@ public class sceReg extends HLEModule {
     }
 
     @HLEFunction(nid = 0xC5768D02, version = 150)
-    public int sceRegGetKeyInfoByName(int hd, String name, TPointer32 ptype, TPointer32 psize) {
+    public int sceRegGetKeyInfoByName(int hd, String name, @BufferInfo(usage=Usage.out) TPointer32 ptype, @BufferInfo(usage=Usage.out) TPointer32 psize) {
     	CategoryHandle categoryHandle = categoryHandles.get(hd);
     	if (categoryHandle == null) {
     		return -1;
@@ -956,7 +1602,7 @@ public class sceReg extends HLEModule {
     }
 
     @HLEFunction(nid = 0x30BE0259, version = 150)
-    public int sceRegGetKeyValueByName(int hd, String name, TPointer buf, int size) {
+    public int sceRegGetKeyValueByName(int hd, String name, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.out) TPointer buf, int size) {
     	CategoryHandle categoryHandle = categoryHandles.get(hd);
     	if (categoryHandle == null) {
     		return -1;

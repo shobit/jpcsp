@@ -24,6 +24,8 @@ import java.util.TimeZone;
 
 import jpcsp.Clock.TimeNanos;
 import jpcsp.Emulator;
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
@@ -554,5 +556,23 @@ public class sceRtc extends HLEModule {
     @HLEFunction(nid = 0xCEEF238F, version = 150)
     public int sceRtcGetCurrentSecureTick(TPointer64 currentTick) {
 		return sceRtcGetCurrentTick(currentTick);
+    }
+
+	@HLEUnimplemented
+    @HLEFunction(nid = 0x759937C5, version = 150)
+    public int sceRtcSetConf(int unknown1, int unknown2, int unknown3, int unknown4) {
+		return 0;
+    }
+
+	@HLEUnimplemented
+    @HLEFunction(nid = 0xDFF30673, version = 660)
+    public int sceRtcSetConf_660(int unknown1, int unknown2, int unknown3, int unknown4) {
+		return sceRtcSetConf(unknown1, unknown2, unknown3, unknown4);
+    }
+
+	@HLEUnimplemented
+    @HLEFunction(nid = 0x508BA64B, version = 150)
+    public int sceRtc_508BA64B(@CanBeNull @BufferInfo(usage=Usage.in) TPointer64 unknown) {
+		return 0;
     }
 }

@@ -105,7 +105,7 @@ public class HLEModuleManager {
         sceAtrac3plus(Modules.sceAtrac3plusModule, new String[] { "libatrac3plus", "PSP_AV_MODULE_ATRAC3PLUS", "PSP_MODULE_AV_ATRAC3PLUS", "sceATRAC3plus_Library" }),
         sceSasCore(Modules.sceSasCoreModule, new String[] { "sc_sascore", "PSP_AV_MODULE_SASCORE", "PSP_MODULE_AV_SASCORE", "sceSAScore" } ),
         sceMpeg    (Modules.sceMpegModule,     new String[] { "mpeg", "mpeg_vsh", "mpeg_vsh370", "PSP_AV_MODULE_MPEGBASE", "PSP_MODULE_AV_MPEGBASE", "sceMpeg_library" }),
-        sceMpegbase(Modules.sceMpegbaseModule, new String[] { "mpeg", "mpeg_vsh", "mpeg_vsh370", "PSP_AV_MODULE_MPEGBASE", "PSP_MODULE_AV_MPEGBASE", "sceMpeg_library" }),
+        sceMpegbase(Modules.sceMpegbaseModule, new String[] { "PSP_AV_MODULE_AVCODEC", "PSP_MODULE_AV_AVCODEC", "avcodec" }),
         sceFont(Modules.sceFontModule, new String[] { "libfont", "sceFont_Library" }),
         scePsmfPlayer(Modules.scePsmfPlayerModule, new String[] { "libpsmfplayer", "psmf_jk", "scePsmfP_library" }),
         scePsmf(Modules.scePsmfModule, new String[] { "psmf", "scePsmf_library" }),
@@ -117,6 +117,9 @@ public class HLEModuleManager {
         sceNetAdhocctl(Modules.sceNetAdhocctlModule, new String[] { "pspnet_adhocctl", "PSP_NET_MODULE_ADHOC", "PSP_MODULE_NET_ADHOC" }),
         sceNetAdhocDiscover(Modules.sceNetAdhocDiscoverModule, new String[] { "pspnet_adhoc_discover", "PSP_NET_MODULE_ADHOC", "PSP_MODULE_NET_ADHOC" }),
         sceNetAdhocMatching(Modules.sceNetAdhocMatchingModule, new String[] { "pspnet_adhoc_matching", "PSP_NET_MODULE_ADHOC", "PSP_MODULE_NET_ADHOC" }),
+        sceNetAdhocTransInt(Modules.sceNetAdhocTransIntModule, new String[] { "pspnet_adhoc_transfer_int" }),
+        sceNetAdhocAuth(Modules.sceNetAdhocAuthModule, new String[] { "pspnet_adhoc_auth" }),
+        sceNetAdhocDownload(Modules.sceNetAdhocDownloadModule, new String[] { "pspnet_adhoc_download" }),
         sceNetIfhandle(Modules.sceNetIfhandleModule, new String[] { "ifhandle", "PSP_NET_MODULE_COMMON", "PSP_MODULE_NET_COMMON" }),
         sceNetApctl(Modules.sceNetApctlModule, new String[] { "pspnet_apctl", "PSP_NET_MODULE_COMMON", "PSP_MODULE_NET_COMMON" }),
         sceNetInet(Modules.sceNetInetModule, new String[] { "pspnet_inet", "PSP_NET_MODULE_INET", "PSP_MODULE_NET_INET" }),
@@ -131,15 +134,18 @@ public class HLEModuleManager {
         sceNpCommerce2Store(Modules.sceNpCommerce2StoreModule, new String[] { "np_commerce2_store" }),
         sceNpCommerce2RegCam(Modules.sceNpCommerce2RegCamModule, new String[] { "np_commerce2_regcam" }),
         sceNpMatching2(Modules.sceNpMatching2Module, new String[] { "np_matching2", "PSP_MODULE_NP_MATCHING2" }),
+        sceNpInstall(Modules.sceNpInstallModule, new String[] { "np_inst" }),
+        sceNpCamp(Modules.sceNpCampModule, new String[] { "np_campaign" }),
         scePspNpDrm_user(Modules.scePspNpDrm_userModule, new String[] { "PSP_MODULE_NP_DRM" }),
         sceVaudio(Modules.sceVaudioModule, new String[] { "PSP_AV_MODULE_VAUDIO", "PSP_MODULE_AV_VAUDIO" }),
         sceMp4(Modules.sceMp4Module, new String[] { "PSP_MODULE_AV_MP4", "mp4msv" }),
         sceHttp(Modules.sceHttpModule, new String[] { "libhttp", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
-        sceHttps(Modules.sceHttpsModule),
+        sceHttps(Modules.sceHttpsModule, new String[] { "libhttp", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
+        sceHttpStorage(Modules.sceHttpStorageModule, new String[] { "http_storage" }),
         sceSsl(Modules.sceSslModule, new String[] { "libssl", "PSP_NET_MODULE_SSL", "PSP_MODULE_NET_SSL" }),
         sceP3da(Modules.sceP3daModule),
-        sceGameUpdate(Modules.sceGameUpdateModule),
-        sceUsbCam(Modules.sceUsbCamModule, new String[] { "PSP_USB_MODULE_CAM", "PSP_MODULE_USB_CAM", "USBCamDriver" }),
+        sceGameUpdate(Modules.sceGameUpdateModule, new String[] { "libgameupdate" }),
+        sceUsbCam(Modules.sceUsbCamModule, new String[] { "PSP_USB_MODULE_CAM", "PSP_MODULE_USB_CAM", "usbcam" }),
         sceJpeg(Modules.sceJpegModule, new String[] { "PSP_AV_MODULE_AVCODEC", "PSP_MODULE_AV_AVCODEC" }),
         sceUsb(Modules.sceUsbModule),
         sceHeap(Modules.sceHeapModule, new String[] { "libheap" }),
@@ -148,7 +154,7 @@ public class HLEModuleManager {
         scePauth(Modules.scePauthModule),
         sceSfmt19937(Modules.sceSfmt19937Module),
         sceMd5(Modules.sceMd5Module, new String[] { "libmd5" }),
-        sceParseUri(Modules.sceParseUriModule, new String[] { "libparse_uri", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
+        sceParseUri(Modules.sceParseUriModule, new String[] { "libparse_uri", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP", "PSP_MODULE_NET_PARSEURI" }),
         sceUsbAcc(Modules.sceUsbAccModule, new String[] { "PSP_USB_MODULE_ACC", "USBAccBaseDriver" }),
         sceMt19937(Modules.sceMt19937Module, new String[] { "libmt19937" }),
         sceAac(Modules.sceAacModule, new String[] { "libaac", "PSP_AV_MODULE_AAC", "PSP_MODULE_AV_AAC" }),
@@ -157,10 +163,12 @@ public class HLEModuleManager {
         sceAudioRouting(Modules.sceAudioRoutingModule),
         sceUsbGps(Modules.sceUsbGpsModule, new String[] { "PSP_USB_MODULE_GPS", "PSP_MODULE_USB_GPS", "usbgps" }),
         sceAudiocodec(Modules.sceAudiocodecModule, new String[] { "PSP_AV_MODULE_AVCODEC", "PSP_MODULE_AV_AVCODEC", "avcodec" }),
+        sceVideocodec(Modules.sceVideocodecModule, new String[] { "PSP_AV_MODULE_AVCODEC", "PSP_MODULE_AV_AVCODEC", "avcodec" }),
         sceAdler(Modules.sceAdlerModule, new String[] { "libadler" }),
         sceSha1(Modules.sceSha1Module, new String[] { "libsha1" }),
         sceSha256(Modules.sceSha256Module, new String[] { "libsha256" }),
-        sceMeCore_driver(Modules.sceMeCore_driverModule),
+        sceMeCore(Modules.sceMeCoreModule),
+        sceMeBoot(Modules.sceMeBootModule),
         KUBridge(Modules.KUBridgeModule),
         SysclibForKernel(Modules.SysclibForKernelModule),
         semaphore(Modules.semaphoreModule),
@@ -174,7 +182,19 @@ public class HLEModuleManager {
         sceResmgr(Modules.sceResmgrModule),
         UtilsForKernel(Modules.UtilsForKernelModule),
         sceLibUpdateDL(Modules.sceLibUpdateDLModule, new String[] { "libupdown" }),
-        sceParseHttp(Modules.sceParseHttpModule, new String[] { "libparse_http" });
+        sceParseHttp(Modules.sceParseHttpModule, new String[] { "libparse_http", "PSP_MODULE_NET_PARSEHTTP" }),
+        sceMgr_driver(Modules.sceMgr_driverModule),
+        sceChnnlsv(Modules.sceChnnlsvModule),
+        sceUsbstor(Modules.sceUsbstorModule),
+        sceIdStorage(Modules.sceIdStorageModule),
+        sceCertLoader(Modules.sceCertLoaderModule, new String[] { "cert_loader", "PSP_MODULE_NET_SSL" }),
+        sceDNAS(Modules.sceDNASModule, new String[] { "libdnas" }),
+        sceDNASCore(Modules.sceDNASCoreModule, new String[] { "libdnas_core" }),
+        sceMcctrl(Modules.sceMcctrlModule, new String[] { "mcctrl" }),
+        sceNetStun(Modules.sceNetStunModule),
+        sceMeMemory(Modules.sceMeMemoryModule),
+        sceMeVideo(Modules.sceMeVideoModule),
+        sceMeAudio(Modules.sceMeAudioModule);
 
     	private HLEModule module;
     	private int firmwareVersionAsDefault;	// FirmwareVersion where the module is loaded by default
@@ -369,10 +389,9 @@ public class HLEModuleManager {
     	int code = NIDMapper.getInstance().nidToSyscall(nid);
         if (code == -1) {
             // Allocate an arbitrary syscall code to the function
-            code = syscallCodeAllocator;
+            code = syscallCodeAllocator++;
             // Add the new code to the NIDMapper
-            NIDMapper.getInstance().addSyscallNid(nid, syscallCodeAllocator);
-            syscallCodeAllocator++;
+            NIDMapper.getInstance().addSyscallNid(nid, code);
         }
 
         return code;

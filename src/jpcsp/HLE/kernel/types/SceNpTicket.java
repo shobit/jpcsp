@@ -16,6 +16,8 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.HLE.kernel.types;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
@@ -28,13 +30,14 @@ public class SceNpTicket extends pspAbstractMemoryMappedStructure {
 	public int version;
 	public int size;
 	public int unknown;
+	public int sizeParams;
 	public List<TicketParam> parameters = new LinkedList<SceNpTicket.TicketParam>();
 	public byte[] unknownBytes;
 
 	public static class TicketParam {
 		public static final int PARAM_TYPE_NULL = 0;
 		public static final int PARAM_TYPE_INT = 1;
-		public static final int PARAM_TYPE_UNKNOWN = 2;
+		public static final int PARAM_TYPE_LONG = 2;
 		public static final int PARAM_TYPE_STRING = 4;
 		public static final int PARAM_TYPE_DATE = 7;
 		public static final int PARAM_TYPE_STRING_ASCII = 8;
@@ -88,7 +91,7 @@ public class SceNpTicket extends pspAbstractMemoryMappedStructure {
 					buffer.setValue32(getIntValue());
 					break;
 				case PARAM_TYPE_DATE:
-				case PARAM_TYPE_UNKNOWN:
+				case PARAM_TYPE_LONG:
 					// This value is written in PSP endianness
 					buffer.setValue64(getLongValue());
 					break;
@@ -120,7 +123,7 @@ public class SceNpTicket extends pspAbstractMemoryMappedStructure {
 					return getDateValue().toString();
 				case PARAM_TYPE_NULL:
 					return "null";
-				case PARAM_TYPE_UNKNOWN:
+				case PARAM_TYPE_LONG:
 					return String.format("0x%16X", getLongValue());
 			}
 			return String.format("type=%d, value=%s", type, Utilities.getMemoryDump(value, 0, value.length));
@@ -131,7 +134,8 @@ public class SceNpTicket extends pspAbstractMemoryMappedStructure {
 	protected void read() {
 		version = read32();
 		size = endianSwap32(read32());
-		unknown = read32();
+		unknown = endianSwap16((short) read16());
+		sizeParams = endianSwap16((short) read16());
 
 		parameters.clear();
 		for (int i = 0; i < NUMBER_PARAMETERS; i++) {
@@ -153,7 +157,8 @@ public class SceNpTicket extends pspAbstractMemoryMappedStructure {
 	protected void write() {
 		write32(version);
 		write32(endianSwap32(size));
-		write32(unknown);
+		write16((short) endianSwap16((short) unknown));
+		write16((short) endianSwap16((short) sizeParams));
 
 		for (TicketParam ticketParam : parameters) {
 			write16((short) endianSwap16((short) ticketParam.getType()));
@@ -163,6 +168,53 @@ public class SceNpTicket extends pspAbstractMemoryMappedStructure {
 		}
 
 		write8Array(unknownBytes);
+	}
+
+	public byte[] toByteArray() {
+		byte[] bytes = new byte[sizeof()];
+		ByteBuffer b = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+
+		b.putInt(version);
+		b.putInt(endianSwap32(size));
+		b.putShort((short) endianSwap16((short) unknown));
+		b.putShort((short) endianSwap16((short) sizeParams));
+
+		for (TicketParam ticketParam : parameters) {
+			b.putShort((short) endianSwap16((short) ticketParam.getType()));
+			byte[] value = ticketParam.getBytesValue();
+			b.putShort((short) endianSwap16((short) value.length));
+			b.put(value);
+		}
+
+		b.put(unknownBytes);
+
+		return bytes;
+	}
+
+	public void read(byte[] bytes, int offset, int length) {
+		ByteBuffer b = ByteBuffer.wrap(bytes, offset, length).order(ByteOrder.LITTLE_ENDIAN);
+
+		version = b.getInt();
+		size = endianSwap32(b.getInt());
+		unknown = endianSwap16(b.getShort());
+		sizeParams = endianSwap16(b.getShort());
+		int readSize = 12;
+
+		parameters.clear();
+		for (int i = 0; i < NUMBER_PARAMETERS; i++) {
+			int type = endianSwap16(b.getShort());
+			int valueLength = endianSwap16(b.getShort());
+			byte[] value = new byte[valueLength];
+			b.get(value);
+
+			readSize += 4 + valueLength;
+
+			TicketParam ticketParam = new TicketParam(type, value);
+			parameters.add(ticketParam);
+		}
+
+		unknownBytes = new byte[size - readSize + 8];
+		b.get(unknownBytes);
 	}
 
 	@Override

@@ -19,13 +19,13 @@ package jpcsp.HLE.modules;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.CookieHandler;
+import java.net.CookieManager;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.Proxy;
 import java.net.URL;
 import java.net.URLConnection;
-import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,12 +46,14 @@ import jpcsp.HLE.TPointer32;
 import jpcsp.HLE.TPointer64;
 import jpcsp.HLE.kernel.managers.SceUidManager;
 import jpcsp.HLE.kernel.types.SceKernelErrors;
-import jpcsp.HLE.kernel.types.pspNetSockAddrInternet;
 import jpcsp.HLE.modules.SysMemUserForUser.SysMemInfo;
 import jpcsp.HLE.Modules;
 import jpcsp.memory.IMemoryWriter;
 import jpcsp.memory.MemoryWriter;
+import jpcsp.remote.HTTPConfiguration;
+import jpcsp.remote.HTTPConfiguration.HttpServerConfiguration;
 import jpcsp.remote.HTTPServer;
+import jpcsp.util.ThreadLocalCookieManager;
 import jpcsp.util.Utilities;
 
 import org.apache.log4j.Logger;
@@ -66,6 +68,17 @@ public class sceHttp extends HLEModule {
     protected HashMap<Integer, HttpTemplate> httpTemplates = new HashMap<Integer, HttpTemplate>();
     protected HashMap<Integer, HttpConnection> httpConnections = new HashMap<Integer, HttpConnection>();
     protected HashMap<Integer, HttpRequest> httpRequests = new HashMap<Integer, HttpRequest>();
+    private CookieManager cookieManager;
+    private static final String httpMethods[] = {
+    	"GET",
+    	"POST",
+    	"HEAD",
+    	"OPTIONS",
+    	"PUT",
+    	"DELETE",
+    	"TRACE",
+    	"CONNECT"
+    };
 
     protected static class HttpRequest {
     	private static final String uidPurpose = "sceHttp-HttpRequest";
@@ -156,6 +169,8 @@ public class sceHttp extends HLEModule {
 				return;
 			}
 
+	    	ThreadLocalCookieManager.setCookieManager(Modules.sceHttpModule.cookieManager);
+
 			if (log.isTraceEnabled()) {
 				log.trace(String.format("HttpRequest %s send: %s", this, Utilities.getMemoryDump(sendData, 0, sendDataLength)));
 			}
@@ -194,16 +209,13 @@ public class sceHttp extends HLEModule {
 
 				if (urlConnection instanceof HttpURLConnection) {
 					httpUrlConnection = (HttpURLConnection) urlConnection;
-					if (method != 0) {
-						httpUrlConnection.setRequestMethod("POST");
-						if (sendDataLength > 0) {
-							httpUrlConnection.setDoOutput(true);
-							OutputStream os = httpUrlConnection.getOutputStream();
-							os.write(sendData, 0, sendDataLength);
-							os.close();
-						}
-					} else {
-						httpUrlConnection.setRequestMethod("GET");
+					httpUrlConnection.setRequestMethod(httpMethods[method]);
+					httpUrlConnection.setInstanceFollowRedirects(getHttpConnection().isEnableRedirect());
+					if (sendDataLength > 0) {
+						httpUrlConnection.setDoOutput(true);
+						OutputStream os = httpUrlConnection.getOutputStream();
+						os.write(sendData, 0, sendDataLength);
+						os.close();
 					}
 				} else {
 					httpUrlConnection = null;
@@ -257,7 +269,7 @@ public class sceHttp extends HLEModule {
 				if (key != null) {
 					List<String> values = properties.get(key);
 					for (String value : values) {
-						allHeaders.append(String.format("%s: %s\n", key, value));
+						allHeaders.append(String.format("%s: %s\r\n", key, value));
 					}
 				}
 			}
@@ -295,6 +307,7 @@ public class sceHttp extends HLEModule {
     	private HashMap<Integer, HttpRequest> httpRequests = new HashMap<Integer, sceHttp.HttpRequest>();
     	private String url;
     	private HttpTemplate httpTemplate;
+    	private boolean enableRedirect;
 
     	public HttpConnection() {
     		id = SceUidManager.getNewUid(uidPurpose);
@@ -356,6 +369,14 @@ public class sceHttp extends HLEModule {
 			this.httpTemplate = httpTemplate;
 		}
 
+		public boolean isEnableRedirect() {
+			return enableRedirect;
+		}
+
+		public void setEnableRedirect(boolean enableRedirect) {
+			this.enableRedirect = enableRedirect;
+		}
+
 		@Override
 		public String toString() {
 			return String.format("HttpConnection id=%d, url='%s'", getId(), getUrl());
@@ -367,6 +388,7 @@ public class sceHttp extends HLEModule {
     	private int id;
     	private HashMap<Integer, HttpConnection> httpConnections = new HashMap<Integer, sceHttp.HttpConnection>();
     	private String agent;
+    	private boolean enableRedirect;
 
     	public HttpTemplate() {
     		id = SceUidManager.getNewUid(uidPurpose);
@@ -387,6 +409,7 @@ public class sceHttp extends HLEModule {
 
     	public void addHttpConnection(HttpConnection httpConnection) {
     		httpConnection.setHttpTemplate(this);
+    		httpConnection.setEnableRedirect(isEnableRedirect());
     		httpConnections.put(httpConnection.getId(), httpConnection);
     	}
 
@@ -402,60 +425,55 @@ public class sceHttp extends HLEModule {
 			this.agent = agent;
 		}
 
+		public boolean isEnableRedirect() {
+			return enableRedirect;
+		}
+
+		public void setEnableRedirect(boolean enableRedirect) {
+			this.enableRedirect = enableRedirect;
+		}
+
 		@Override
 		public String toString() {
 			return String.format("HttpTemplate id=%d, agent='%s'", getId(), getAgent());
 		}
     }
 
-    public void checkHttpInit() {
+	@Override
+	public void start() {
+		CookieHandler.setDefault(new ThreadLocalCookieManager());
+		cookieManager = new CookieManager();
+
+		super.start();
+	}
+
+	public void checkHttpInit() {
     	if (!isHttpInit) {
     		throw(new SceKernelErrorException(SceKernelErrors.ERROR_HTTP_NOT_INIT));
     	}
     }
 
 	private static Proxy getProxyForUrl(String url) {
-		Proxy proxy = null;
-
-		if (url != null) {
-			if (url.startsWith("http://fe01.psp.update.playstation.org/") ||
-			    url.startsWith("https://native.np.ac.playstation.net/")) {
-				proxy = HTTPServer.getInstance().getProxy();
+		for (HttpServerConfiguration httpServerConfiguration : HTTPConfiguration.doProxyServers) {
+			if (httpServerConfiguration.isMatchingUrl(url)) {
+				return HTTPServer.getInstance().getProxy();
 			}
 		}
 
-		return proxy;
+		return null;
 	}
 
-	private static boolean isSameAddress(String name, pspNetSockAddrInternet sockAddrInternet) {
-		InetAddress inetAddresses[] = null;
-		try {
-			inetAddresses = (InetAddress[]) InetAddress.getAllByName(name);
-		} catch (UnknownHostException e) {
-			if (log.isDebugEnabled()) {
-				log.debug(String.format("isSameAddress cannot resolve '%s': %s", name, e.toString()));
-			}
-		}
-
-		if (inetAddresses != null) {
-			for (int i = 0; i < inetAddresses.length; i++) {
-				byte[] addrBytes = inetAddresses[i].getAddress();
-				int addr = (addrBytes[0] & 0xFF) | ((addrBytes[1] & 0xFF) << 8) | ((addrBytes[2] & 0xFF) << 16) | ((addrBytes[3] & 0xFF) << 24);
-				if (addr == sockAddrInternet.sin_addr) {
-					return true;
+	public static String patchUrl(String url) {
+		for (HttpServerConfiguration httpServerConfiguration : HTTPConfiguration.doProxyServers) {
+			if (httpServerConfiguration.isHttps()) {
+				if (httpServerConfiguration.isMatchingUrl(url)) {
+					// Replace https with http
+					return url.replaceFirst("https", "http");
 				}
 			}
 		}
 
-		return false;
-	}
-
-	public static void getProxyForSockAddrInternet(pspNetSockAddrInternet sockAddrInternet) {
-		if (isSameAddress("fe01.psp.update.playstation.org", sockAddrInternet) ||
-		    isSameAddress("native.np.ac.playstation.net", sockAddrInternet)) {
-			sockAddrInternet.sin_addr = HTTPServer.getInstance().getProxyAddress();
-			sockAddrInternet.sin_port = HTTPServer.getInstance().getProxyPort();
-		}
+		return url;
 	}
 
 	protected HttpRequest getHttpRequest(int requestId) {
@@ -476,6 +494,10 @@ public class sceHttp extends HLEModule {
     	return httpConnection;
     }
 
+    protected boolean isHttpTemplateId(int templateId) {
+    	return httpTemplates.containsKey(templateId);
+    }
+
     protected HttpTemplate getHttpTemplate(int templateId) {
     	HttpTemplate httpTemplate = httpTemplates.get(templateId);
     	if (httpTemplate == null) {
@@ -487,7 +509,7 @@ public class sceHttp extends HLEModule {
 
     private int getTempMemory() {
     	if (memInfo == null) {
-    		memInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.USER_PARTITION_ID, "sceHttp", SysMemUserForUser.PSP_SMEM_Low, maxMemSize, 0);
+    		memInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.VSHELL_PARTITION_ID, "sceHttp", SysMemUserForUser.PSP_SMEM_Low, maxMemSize, 0);
     		if (memInfo == null) {
     			return 0;
     		}
@@ -512,6 +534,13 @@ public class sceHttp extends HLEModule {
         maxMemSize = heapSize;
         isHttpInit = true;
         memInfo = null;
+
+        // Allocate memory during sceHttpInit
+        int addr = getTempMemory();
+        if (addr == 0) {
+        	log.warn(String.format("sceHttpInit cannot allocate 0x%X bytes", maxMemSize));
+        	return -1;
+        }
 
 		Utilities.disableSslCertificateChecks();
 
@@ -548,16 +577,25 @@ public class sceHttp extends HLEModule {
      */
     @HLEUnimplemented
     @HLEFunction(nid = 0x0282A3BD, version = 150)
-    public int sceHttpGetContentLength(int requestId, TPointer64 contentLength){
+    public int sceHttpGetContentLength(int requestId, @BufferInfo(usage=Usage.out) TPointer64 contentLengthAddr){
     	HttpRequest httpRequest = getHttpRequest(requestId);
     	httpRequest.connect();
-    	contentLength.setValue(httpRequest.getContentLength());
+    	long contentLength = httpRequest.getContentLength();
 
-    	if (log.isDebugEnabled()) {
-    		log.debug(String.format("sceHttpGetContentLength request %s returning contentLength=%d", httpRequest, contentLength.getValue()));
+    	int result;
+    	if (contentLength < 0) {
+    		// Value in contentLengthAddr is left unchanged when returning an error, checked on PSP.
+    		result = SceKernelErrors.ERROR_HTTP_NO_CONTENT_LENGTH;
+    	} else {
+    		contentLengthAddr.setValue(contentLength);
+    		result = 0;
     	}
 
-    	return 0;
+    	if (log.isDebugEnabled()) {
+    		log.debug(String.format("sceHttpGetContentLength request %s returning 0x%X, contentLength=0x%X", httpRequest, result, contentLengthAddr.getValue()));
+    	}
+
+    	return result;
     }
 
     /**
@@ -587,7 +625,15 @@ public class sceHttp extends HLEModule {
      */
     @HLEUnimplemented
     @HLEFunction(nid = 0x0809C831, version = 150)
-    public int sceHttpEnableRedirect(int templateId) {
+    public int sceHttpEnableRedirect(int id) {
+    	if (isHttpTemplateId(id)) {
+    		HttpTemplate httpTemplate = getHttpTemplate(id);
+    		httpTemplate.setEnableRedirect(true);
+    	} else {
+    		HttpConnection httpConnection = getHttpConnection(id);
+    		httpConnection.setEnableRedirect(true);
+    	}
+
         return 0;
     }
 
@@ -636,7 +682,15 @@ public class sceHttp extends HLEModule {
      */
     @HLEUnimplemented
     @HLEFunction(nid = 0x1A0EBB69, version = 150)
-    public int sceHttpDisableRedirect(int templateId) {
+    public int sceHttpDisableRedirect(int id) {
+    	if (isHttpTemplateId(id)) {
+    		HttpTemplate httpTemplate = getHttpTemplate(id);
+    		httpTemplate.setEnableRedirect(false);
+    	} else {
+    		HttpConnection httpConnection = getHttpConnection(id);
+    		httpConnection.setEnableRedirect(false);
+    	}
+
         return 0;
     }
 
@@ -753,7 +807,7 @@ public class sceHttp extends HLEModule {
      */
     @HLEUnimplemented
     @HLEFunction(nid = 0x4CC7D78F, version = 150)
-    public int sceHttpGetStatusCode(int requestId, TPointer32 statusCode) {
+    public int sceHttpGetStatusCode(int requestId, @BufferInfo(usage=Usage.out) TPointer32 statusCode) {
     	HttpRequest httpRequest = getHttpRequest(requestId);
     	httpRequest.connect();
     	statusCode.setValue(httpRequest.getStatusCode());
@@ -779,7 +833,7 @@ public class sceHttp extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x54E7DF75, version = 150)
-    public int sceHttpIsRequestInCache() {
+    public int sceHttpIsRequestInCache(int requestId, int unknown1, int unknown2) {
         return 0;
     }
 
@@ -807,8 +861,14 @@ public class sceHttp extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x7774BF4C, version = 150)
-    public int sceHttpAddCookie() {
-        return 0;
+    public int sceHttpAddCookie(PspString url, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer cookieAddr, int length) {
+    	String cookie = cookieAddr.getStringNZ(length);
+
+    	if (log.isDebugEnabled()) {
+    		log.debug(String.format("sceHttpAddCookie for URL '%s': '%s'", url.getString(), cookie));
+    	}
+
+    	return 0;
     }
 
     @HLEUnimplemented
@@ -883,8 +943,8 @@ public class sceHttp extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x96F16D3E, version = 150)
-    public int sceHttpGetCookie() {
-        return 0;
+    public int sceHttpGetCookie(PspString url, @BufferInfo(lengthInfo=LengthInfo.nextNextParameter, usage=Usage.out) TPointer cookie, @CanBeNull @BufferInfo(usage=Usage.out) TPointer32 cookieLengthAddr, int prepare, int secure) {
+        return SceKernelErrors.ERROR_HTTP_NOT_FOUND;
     }
 
     /**
@@ -931,7 +991,7 @@ public class sceHttp extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0xA4496DE5, version = 150)
-    public int sceHttpSetRedirectCallback(int templateId, TPointer callbackAddr, int callbackArg) {
+    public int sceHttpSetRedirectCallback(int templateId, @CanBeNull TPointer callbackAddr, int callbackArg) {
         return 0;
     }
 
@@ -979,6 +1039,7 @@ public class sceHttp extends HLEModule {
     public int sceHttpCreateRequestWithURL(int connectionId, int method, PspString url, long contentLength) {
     	HttpConnection httpConnection = getHttpConnection(connectionId);
     	HttpRequest httpRequest = new HttpRequest();
+    	httpRequest.setMethod(method);
     	httpRequest.setUrl(url.getString());
     	httpRequest.setContentLength(contentLength);
     	httpConnection.addHttpRequest(httpRequest);
@@ -1086,7 +1147,7 @@ public class sceHttp extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0xDB266CCF, version = 150)
-    public int sceHttpGetAllHeader(int requestId, TPointer32 headerAddr, TPointer32 headerLengthAddr) {
+    public int sceHttpGetAllHeader(int requestId, @BufferInfo(usage=Usage.out) TPointer32 headerAddr, @BufferInfo(usage=Usage.out) TPointer32 headerLengthAddr) {
     	HttpRequest httpRequest = getHttpRequest(requestId);
     	httpRequest.connect();
     	String allHeaders = httpRequest.getAllHeaders();
@@ -1100,7 +1161,7 @@ public class sceHttp extends HLEModule {
     	headerLengthAddr.setValue(allHeaders.length());
 
     	if (log.isDebugEnabled()) {
-    		log.debug(String.format("sceHttpGetAllHeader returning at 0x%08X: %s", addr, allHeaders));
+    		log.debug(String.format("sceHttpGetAllHeader returning at 0x%08X: %s", addr, Utilities.getMemoryDump(addr, headerLengthAddr.getValue())));
     	}
 
     	return 0;
@@ -1187,6 +1248,58 @@ public class sceHttp extends HLEModule {
     @HLEUnimplemented
     @HLEFunction(nid = 0x3C478044, version = 150)
     public int sceHttp_3C478044(int templateId, int unknown) {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x739C2D79, version = 150)
+    public int sceHttpInitExternalCache() {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xA461A167, version = 150)
+    public int sceHttpEndExternalCache() {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x8046E250, version = 150)
+    public int sceHttpEnableExternalCache() {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xB0257723, version = 150)
+    public int sceHttpFlushExternalCache() {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x457D221D, version = 150)
+    public int sceHttpFlushCookie() {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x4E4A284A, version = 150)
+    public int sceHttpCloneTemplate(int templateId) {
+    	HttpTemplate clonedHttpTemplate = new HttpTemplate();
+    	HttpTemplate httpTemplate = getHttpTemplate(templateId);
+    	clonedHttpTemplate.setAgent(httpTemplate.getAgent());
+
+    	return clonedHttpTemplate.getId();
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xD80BE761, version = 150)
+    public int sceHttp_D80BE761(int templateId) {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xA909F2AE, version = 150)
+    public int sceHttp_A909F2AE1() {
     	return 0;
     }
 }

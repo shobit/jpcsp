@@ -17,23 +17,30 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
 package jpcsp.HLE.modules;
 
 import static jpcsp.Allegrex.Common._a2;
+import static jpcsp.Allegrex.Common._a3;
 
 import org.apache.log4j.Logger;
 
 import jpcsp.Allegrex.CpuState;
 import jpcsp.Allegrex.compiler.nativeCode.AbstractNativeCodeSequence;
+import jpcsp.HLE.BufferInfo;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
 import jpcsp.HLE.Modules;
 import jpcsp.HLE.PspString;
 import jpcsp.HLE.TPointer;
+import jpcsp.HLE.TPointer32;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.memory.IMemoryReader;
 import jpcsp.memory.MemoryReader;
 import jpcsp.util.Utilities;
 
 public class SysclibForKernel extends HLEModule {
 	public static Logger log = Modules.getLogger("SysclibForKernel");
+	private static final String validNumberCharactersUpperCase = "0123456789ABCDEF";
+	private static final String validNumberCharactersLowerCase = "0123456789abcdef";
 
     @HLEFunction(nid = 0x10F3BB61, version = 150)
     public int memset(@CanBeNull TPointer destAddr, int data, int size) {
@@ -121,7 +128,9 @@ public class SysclibForKernel extends HLEModule {
 
 	@HLEFunction(nid = 0xA48D2592, version = 150)
     public int memmove(@CanBeNull TPointer destAddr, TPointer srcAddr, int size) {
-		destAddr.getMemory().memmove(destAddr.getAddress(), srcAddr.getAddress(), size);
+		if (destAddr.isNotNull() && destAddr.getAddress() != srcAddr.getAddress()) {
+			destAddr.getMemory().memmove(destAddr.getAddress(), srcAddr.getAddress(), size);
+		}
 		return 0;
     }
 
@@ -138,11 +147,11 @@ public class SysclibForKernel extends HLEModule {
     }
 
 	/**
-	 * Returns a pointer to the first occurence of s2 in s1, or a null pointer if s2 is not part of s1.
+	 * Returns a pointer to the first occurrence of s2 in s1, or a null pointer if s2 is not part of s1.
 	 * The matching process does not include the terminating null-characters, but it stops there.
 	 * @param  s1 string to be scanned
 	 * @param  s2 string containing the sequence of characters to match
-	 * @return a pointer to the first occurence in s1 or the entire sequence of characters specified in s2,
+	 * @return a pointer to the first occurrence in s1 or the entire sequence of characters specified in s2,
 	 *         or a null pointer if the sequence is not present in s1.
 	 */
 	@HLEFunction(nid = 0x0D188658, version = 150)
@@ -165,5 +174,93 @@ public class SysclibForKernel extends HLEModule {
 		destAddr.memcpy(dstLength, srcAddr.getAddress(), srcLength + 1);
 
         return destAddr.getAddress();
+    }
+
+	@HLEFunction(nid = 0xC2145E80, version = 150)
+    public int snprintf(CpuState cpu, TPointer buffer, int n, String format) {
+		String formattedString = Modules.SysMemUserForUserModule.hleKernelSprintf(cpu, format, _a3);
+		if (formattedString.length() >= n) {
+			formattedString = formattedString.substring(0, n - 1);
+		}
+
+		Utilities.writeStringZ(buffer.getMemory(), buffer.getAddress(), formattedString);
+
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("snprintf returning '%s'", formattedString));
+		}
+
+		return formattedString.length();
+    }
+
+	private boolean isNumberValidCharacter(int c, int base) {
+		if (base > validNumberCharactersUpperCase.length()) {
+			base = validNumberCharactersUpperCase.length();
+		}
+
+		if (validNumberCharactersUpperCase.substring(0, base).indexOf(c) >= 0) {
+			return true;
+		}
+
+		if (validNumberCharactersLowerCase.substring(0, base).indexOf(c) >= 0) {
+			return true;
+		}
+
+		return false;
+	}
+
+	@HLEFunction(nid = 0x47DD934D, version = 150)
+    public int strtol(@CanBeNull PspString string, @CanBeNull TPointer32 endString, int base) {
+		// base == 0 seems to be handled as base == 10.
+		if (base == 0) {
+			base = 10;
+		}
+
+		IMemoryReader memoryReader = MemoryReader.getMemoryReader(string.getAddress(), 1);
+		String s = string.getString();
+		for (int i = 0; true; i++) {
+			int c = memoryReader.readNext();
+			if (c == 0 || !isNumberValidCharacter(c, base)) {
+				endString.setValue(memoryReader.getCurrentAddress());
+				s = s.substring(0, i);
+				break;
+			}
+		}
+
+		int result = Integer.parseInt(s, base);
+
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("strtol on '%s' returning 0x%X", s, result));
+		}
+
+		return result;
+    }
+
+	@HLEFunction(nid = 0x6A7900E1, version = 150)
+    public int strtoul(@CanBeNull PspString string, @CanBeNull TPointer32 endString, int base) {
+		// Assume same as strtol
+		return strtol(string, endString, base);
+    }
+
+	@HLEFunction(nid = 0xB49A7697, version = 150)
+    public int strncpy(@CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextNextParameter, usage=Usage.out) TPointer destAddr, @CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer srcAddr, int size) {
+    	int srcLength = AbstractNativeCodeSequence.getStrlen(srcAddr.getAddress());
+		if (srcLength < size) {
+			destAddr.memcpy(srcAddr.getAddress(), srcLength + 1);
+			destAddr.clear(srcLength + 1, size - srcLength - 1);
+		} else {
+			destAddr.memcpy(srcAddr.getAddress(), size);
+		}
+
+		return destAddr.getAddress();
+    }
+
+	@HLEFunction(nid = 0x7DEE14DE, version = 150)
+    public long __udivdi3(long a, long b) {
+		return a / b;
+    }
+
+	@HLEFunction(nid = 0x5E8E5F42, version = 150)
+    public long __umoddi3(long a, long b) {
+		return a % b;
     }
 }

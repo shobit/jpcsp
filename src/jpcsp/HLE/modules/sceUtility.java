@@ -40,6 +40,7 @@ import static jpcsp.graphics.GeCommands.VTYPE_TRANSFORM_PIPELINE_RAW_COORD;
 import static jpcsp.graphics.RE.IRenderingEngine.GU_TEXTURE_2D;
 import static jpcsp.graphics.VideoEngine.alignBufferWidth;
 import static jpcsp.memory.ImageReader.colorARGBtoABGR;
+import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLELogging;
 import jpcsp.HLE.HLEModule;
@@ -91,6 +92,7 @@ import jpcsp.Emulator;
 import jpcsp.GeneralJpcspException;
 import jpcsp.Loader;
 import jpcsp.Memory;
+import jpcsp.NIDMapper;
 import jpcsp.Processor;
 import jpcsp.State;
 import jpcsp.HLE.Modules;
@@ -101,6 +103,7 @@ import jpcsp.HLE.kernel.managers.SystemTimeManager;
 import jpcsp.HLE.kernel.types.SceFontInfo;
 import jpcsp.HLE.kernel.types.SceIoStat;
 import jpcsp.HLE.kernel.types.SceKernelErrors;
+import jpcsp.HLE.kernel.types.SceKernelLMOption;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
 import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.kernel.types.SceUtilityGamedataInstallParams;
@@ -117,6 +120,7 @@ import jpcsp.HLE.kernel.types.pspUtilityBaseDialog;
 import jpcsp.HLE.kernel.types.pspUtilityDialogCommon;
 import jpcsp.HLE.kernel.types.SceUtilityOskParams.SceUtilityOskData;
 import jpcsp.HLE.kernel.types.pspCharInfo;
+import jpcsp.HLE.modules.SysMemUserForUser.SysMemInfo;
 import jpcsp.crypto.CryptoEngine;
 import jpcsp.filesystems.SeekableDataInput;
 import jpcsp.format.PNG;
@@ -159,6 +163,17 @@ public class sceUtility extends HLEModule {
 		psnState = new NotImplementedUtilityDialogState("sceUtilityPsn");
 		installState = new InstallUtilityDialogState("sceUtilityInstall");
         startedDialogState = null;
+
+        utilityPrivateModules = new HashMap<String, String>();
+        utilityPrivateModules.put("htmlviewer_ui", "flash0:/vsh/module/htmlviewer_ui.prx");
+        utilityPrivateModules.put("hvauth_r", "flash0:/vsh/module/hvauth_r.prx");
+        utilityPrivateModules.put("hvauth_t", "flash0:/vsh/module/hvauth_t.prx");
+        utilityPrivateModules.put("netfront", "flash0:/vsh/module/netfront.prx");
+        utilityPrivateModules.put("mgvideo", "flash0:/kd/mgvideo.prx");
+        utilityPrivateModules.put("mm_flash", "flash0:/vsh/module/mm_flash.prx");
+        utilityPrivateModules.put("libslim", "flash0:/vsh/module/libslim.prx");
+        utilityPrivateModules.put("libwww", "flash0:/vsh/module/libwww.prx");
+        utilityPrivateModules.put("libfont_hv", "flash0:/vsh/module/libfont_hv.prx");
 
         super.start();
     }
@@ -282,7 +297,7 @@ public class sceUtility extends HLEModule {
     protected HashMap<Integer, String> waitingAvModules = new HashMap<Integer, String>();
     protected HashMap<Integer, SceModule> loadedUsbModules = new HashMap<Integer, SceModule>();
     protected HashMap<Integer, String> waitingUsbModules = new HashMap<Integer, String>();
-    protected HashMap<Integer, SceModule> loadedModules = new HashMap<Integer, SceModule>();
+    protected HashMap<Integer, List<SceModule>> loadedModules = new HashMap<Integer, List<SceModule>>();
     protected HashMap<Integer, String> waitingModules = new HashMap<Integer, String>();
     public static final String[] utilityAvModuleNames = new String[] {
         "PSP_AV_MODULE_AVCODEC",
@@ -303,6 +318,7 @@ public class sceUtility extends HLEModule {
         "PSP_USB_MODULE_CAM",
         "PSP_USB_MODULE_GPS"
     };
+    private static HashMap<String, String> utilityPrivateModules;
 
     public static final int PSP_AV_MODULE_AVCODEC = 0;
     public static final int PSP_AV_MODULE_SASCORE = 1;
@@ -2235,6 +2251,59 @@ public class sceUtility extends HLEModule {
             npSigninParams.signinStatus = SceUtilityNpSigninParams.NP_SIGNING_STATUS_OK;
             npSigninParams.write(mem);
 
+            int sceNp_E24DA399 = NIDMapper.getInstance().overwrittenNidToAddress(0xE24DA399);
+            if (sceNp_E24DA399 != 0) {
+            	int address = mem.read16(sceNp_E24DA399 + 0) << 16;
+            	address += (short) mem.read16(sceNp_E24DA399 + 8);
+            	if (Memory.isAddressGood(address)) {
+            		if (log.isDebugEnabled()) {
+            			log.debug(String.format("sceNp_E24DA399 Address 0x%08X", address));
+            		}
+            		mem.write32(address, 1);
+            	}
+            }
+
+            int sceNp_C48F2847 = NIDMapper.getInstance().overwrittenNidToAddress(0xC48F2847);
+            if (sceNp_C48F2847 != 0) {
+            	int address = mem.read16(sceNp_C48F2847 + 0x74) << 16;
+            	address += (short) mem.read16(sceNp_C48F2847 + 0x78);
+            	if (Memory.isAddressGood(address)) {
+            		if (log.isDebugEnabled()) {
+            			log.debug(String.format("sceNp_C48F2847 Address 0x%08X", address));
+            		}
+            		Utilities.writeStringZ(mem, address, Modules.sceNpModule.getOnlineId());
+            	}
+            }
+
+            int sceNpService_7EF4312E = NIDMapper.getInstance().overwrittenNidToAddress(0x7EF4312E);
+            if (sceNpService_7EF4312E != 0) {
+            	int subAddress = (mem.read32(sceNpService_7EF4312E + 0x78) & 0x3FFFFFF) << 2;
+            	int address = mem.read16(subAddress + 0x14) << 16;
+            	address += (short) mem.read16(subAddress + 0x38);
+            	if (Memory.isAddressGood(address)) {
+            		if (log.isDebugEnabled()) {
+            			log.debug(String.format("sceNpService_7EF4312E Address 0x%08X", address));
+            		}
+            		SysMemInfo memInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.KERNEL_PARTITION_ID, "sceNpService_7EF4312E", SysMemUserForUser.PSP_SMEM_Low, 100, 0);
+            		mem.write32(address, memInfo.addr);
+            		mem.memset(memInfo.addr, (byte) 0, 100);
+            		Utilities.writeStringZ(mem, memInfo.addr + 12, Modules.sceNpModule.getOnlineId());
+            		Modules.SysMemForKernelModule.SysMemUserForUser_945E45DA(new TPointer(mem, memInfo.addr + 64));
+            	}
+            }
+
+            int sceNp_02CA8CAA = NIDMapper.getInstance().overwrittenNidToAddress(0x02CA8CAA);
+            if (sceNp_02CA8CAA != 0) {
+            	int address = mem.read16(sceNp_02CA8CAA + 0x8C) << 16;
+            	address += (short) mem.read16(sceNp_02CA8CAA + 0x90);
+            	if (Memory.isAddressGood(address)) {
+            		if (log.isDebugEnabled()) {
+            			log.debug(String.format("sceNp_02CA8CAA Address 0x%08X", address));
+            		}
+            		mem.write64(address, Modules.sceRtcModule.hleGetCurrentTick());
+            	}
+            }
+
             return false;
         }
 
@@ -3928,75 +3997,104 @@ public class sceUtility extends HLEModule {
         PSP_MODULE_NET_PARSEURI(0x0103),
         PSP_MODULE_NET_PARSEHTTP(0x0104),
         PSP_MODULE_NET_HTTP(0x0105),
-        PSP_MODULE_NET_SSL(0x0106),
+        PSP_MODULE_NET_SSL(0x0106, new String[] { "flash0:/kd/libssl.prx", "flash0:/kd/cert_loader.prx" }),
         PSP_MODULE_NET_UPNP(0x0107),
         PSP_MODULE_NET_HTTPSTORAGE(0x0108),
         PSP_MODULE_USB_PSPCM(0x0200),
         PSP_MODULE_USB_MIC(0x0201),
         PSP_MODULE_USB_CAM(0x0202),
         PSP_MODULE_USB_GPS(0x0203),
-        PSP_MODULE_AV_AVCODEC(0x0300),
-        PSP_MODULE_AV_SASCORE(0x0301),
+        PSP_MODULE_AV_AVCODEC(0x0300, "flash0:/kd/avcodec.prx"),
+        PSP_MODULE_AV_SASCORE(0x0301, "flash0:/kd/sc_sascore.prx"),
         PSP_MODULE_AV_ATRAC3PLUS(0x0302),
-        PSP_MODULE_AV_MPEGBASE(0x0303),
+        PSP_MODULE_AV_MPEGBASE(0x0303, "flash0:/kd/mpeg.prx"),
         PSP_MODULE_AV_MP3(0x0304),
         PSP_MODULE_AV_VAUDIO(0x0305),
         PSP_MODULE_AV_AAC(0x0306),
         PSP_MODULE_AV_G729(0x0307),
         PSP_MODULE_AV_MP4(0x0308),
-        PSP_MODULE_NP_COMMON(0x0400),
-        PSP_MODULE_NP_SERVICE(0x0401),
-        PSP_MODULE_NP_MATCHING2(0x0402),
-        PSP_MODULE_NP_COMMERCE2(0x0403),
+        PSP_MODULE_NP_COMMON(0x0400, new String[] { "flash0:/kd/np.prx", "flash0:/kd/np_core.prx", "flash0:/kd/np_auth.prx" }),
+        PSP_MODULE_NP_SERVICE(0x0401, "flash0:/kd/np_service.prx"),
+        PSP_MODULE_NP_MATCHING2(0x0402, "flash0:/kd/np_matching2.prx"),
+        PSP_MODULE_NP_COMMERCE2(0x0403, "flash0:/kd/np_commerce2.prx"),
         PSP_MODULE_NP_DRM(0x0500),
         PSP_MODULE_IRDA(0x0600);
 
         private int id;
+        private String[] prxNames;
 
         private UtilityModule(int id) {
             this.id = id;
         }
 
+        private UtilityModule(int id, String prxName) {
+            this.id = id;
+            prxNames = new String[] { prxName };
+        }
+
+        private UtilityModule(int id, String[] prxNames) {
+            this.id = id;
+            this.prxNames = prxNames;
+        }
+
         public int getID() {
             return id;
         }
+
+        public String[] getPrxNames() {
+        	if (prxNames == null) {
+        		return new String[] { toString() };
+        	}
+        	return prxNames;
+        }
     }
 
-    protected String getModuleName(int module) {
-        for (UtilityModule m : UtilityModule.values()) {
+    protected String[] getModuleNames(int module) {
+    	for (UtilityModule m : UtilityModule.values()) {
             if (m.getID() == module) {
-                return m.toString();
+            	return m.getPrxNames();
             }
         }
-        return "PSP_MODULE_UNKNOWN_" + Integer.toHexString(module);
+        return new String[] { String.format("PSP_MODULE_UNKNOWN_%X", module) };
     }
 
-    protected int hleUtilityLoadModule(int module, String moduleName) {
-        HLEModuleManager moduleManager = HLEModuleManager.getInstance();
-    	if (loadedModules.containsKey(module) || waitingModules.containsKey(module)) { // Module already loaded.
-    		return SceKernelErrors.ERROR_MODULE_ALREADY_LOADED;
-    	} else if ((module == UtilityModule.PSP_MODULE_NET_HTTPSTORAGE.id) && (!loadedModules.containsKey(UtilityModule.PSP_MODULE_NET_HTTP.id))) {
-            log.error("Library not find");
-    		return SceKernelErrors.ERROR_KERNEL_LIBRARY_NOT_FOUND;
-    	} else if (!moduleManager.hasFlash0Module(moduleName)) { // Can't load flash0 module.
-            waitingModules.put(module, moduleName); // Always save a load attempt.
-            log.error("Can't load flash0 module");
-           return SceKernelErrors.ERROR_MODULE_BAD_ID;           
-    	} else {
-            // Load and save it in loadedModules.
-            int sceModuleId = moduleManager.LoadFlash0Module(moduleName);
-            SceModule sceModule = Managers.modules.getModuleByUID(sceModuleId);
-            loadedModules.put(module, sceModule);
-            return 0;
-        }
-    }
+	protected int hleUtilityLoadModule(int module, String moduleName) {
+		// Extract the PRX name from the module name
+		String prxName = moduleName;
+		if (moduleName.endsWith(".prx")) {
+			prxName = moduleName.substring(moduleName.lastIndexOf("/") + 1, moduleName.length() - 4);
+		}
+
+		HLEModuleManager moduleManager = HLEModuleManager.getInstance();
+		if (!moduleManager.hasFlash0Module(prxName)) { // Can't load flash0 module.
+			waitingModules.put(module, moduleName); // Always save a load attempt.
+			log.error("Can't load flash0 module");
+			return SceKernelErrors.ERROR_MODULE_BAD_ID;           
+		}
+
+		// Load and save it in loadedModules.
+		int sceModuleId;
+		if (moduleName.equals(prxName)) {
+			sceModuleId = moduleManager.LoadFlash0Module(moduleName);
+		} else {
+			sceModuleId = Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule(moduleName, 0x10);
+		}
+		SceModule sceModule = Managers.modules.getModuleByUID(sceModuleId);
+		if (!loadedModules.containsKey(module)) {
+			loadedModules.put(module, new LinkedList<SceModule>());
+		}
+		loadedModules.get(module).add(sceModule);
+
+		return 0;
+	}
 
     protected int hleUtilityUnloadModule(int module) {
         if (loadedModules.containsKey(module)) {
             // Unload the module.
             HLEModuleManager moduleManager = HLEModuleManager.getInstance();
-            SceModule sceModule = loadedModules.remove(module);
-            moduleManager.UnloadFlash0Module(sceModule);
+            for (SceModule sceModule : loadedModules.remove(module)) {
+            	moduleManager.UnloadFlash0Module(sceModule);
+            }
             return 0;
         } else if (waitingModules.containsKey(module)) {
             // Simulate a successful unload.
@@ -4693,22 +4791,38 @@ public class sceUtility extends HLEModule {
 
     @HLEFunction(nid = 0x2A2B3DE0, version = 303, checkInsideInterrupt = true)
     public int sceUtilityLoadModule(int module) {
-        String moduleName = getModuleName(module);
-        log.info(String.format("Loading: sceUtilityLoadModule(module=0x%04X) %s", module, moduleName));
-        int result = hleUtilityLoadModule(module, moduleName);
-        if (result == SceKernelErrors.ERROR_MODULE_BAD_ID) {
-            log.info(String.format("IGNORING: sceUtilityLoadModule(module=0x%04X) %s", module, moduleName));
-            result = 0;
+    	if (loadedModules.containsKey(module) || waitingModules.containsKey(module)) { // Module already loaded.
+    		return SceKernelErrors.ERROR_MODULE_ALREADY_LOADED;
+    	} else if ((module == UtilityModule.PSP_MODULE_NET_HTTPSTORAGE.id) && (!loadedModules.containsKey(UtilityModule.PSP_MODULE_NET_HTTP.id))) {
+            log.error("Library not find");
+    		return SceKernelErrors.ERROR_KERNEL_LIBRARY_NOT_FOUND;
+    	}
 
-        	Modules.ThreadManForUserModule.hleKernelDelayThread(ModuleMgrForUser.loadHLEModuleDelay, false);
+    	int currentThreadID = Modules.ThreadManForUserModule.getCurrentThreadID();
 
-        	return result;
+    	String[] moduleNames = getModuleNames(module);
+        int result = 0;
+        for (String moduleName : moduleNames) {
+        	log.info(String.format("Loading: sceUtilityLoadModule(module=0x%04X) %s", module, moduleName));
+	        int loadResult = hleUtilityLoadModule(module, moduleName);
+
+	        if (loadResult == SceKernelErrors.ERROR_MODULE_BAD_ID) {
+	            log.info(String.format("IGNORING: sceUtilityLoadModule(module=0x%04X) %s", module, moduleName));
+	        } else {
+	        	if (loadResult < 0) {
+	        		result = loadResult;
+	        	}
+	        	log.info(String.format("sceUtilityLoadModule(module=0x%04X) %s loaded", module, moduleName));
+	        }
         }
 
-        log.info(String.format("sceUtilityLoadModule(module=0x%04X) %s loaded", module, moduleName));
-
         if (result >= 0) {
-        	Modules.ThreadManForUserModule.hleKernelDelayThread(ModuleMgrForUser.loadHLEModuleDelay, false);
+        	int newCurrentThreadID = Modules.ThreadManForUserModule.getCurrentThreadID();
+        	// Do not delay the current thread if a context switching has already happened,
+        	// the thread is already delayed.
+        	if (currentThreadID == newCurrentThreadID) {
+        		Modules.ThreadManForUserModule.hleKernelDelayThread(currentThreadID, ModuleMgrForUser.loadHLEModuleDelay, false);
+        	}
         }
 
         return result;
@@ -4716,10 +4830,17 @@ public class sceUtility extends HLEModule {
 
     @HLEFunction(nid = 0xE49BFE92, version = 303, checkInsideInterrupt = true)
     public int sceUtilityUnloadModule(int module) {
-        String moduleName = getModuleName(module);
-        log.info(String.format("sceUtilityUnloadModule(module=0x%04X) %s unloaded", module, moduleName));
+        String[] moduleNames = getModuleNames(module);
+        int result = 0;
+        for (String moduleName : moduleNames) {
+        	log.info(String.format("sceUtilityUnloadModule(module=0x%04X) %s unloaded", module, moduleName));
+        	int unloadResult = hleUtilityUnloadModule(module);
+        	if (unloadResult < 0) {
+        		result = unloadResult;
+        	}
+        }
 
-        return hleUtilityUnloadModule(module);
+        return result;
     }
 
     @HLEFunction(nid = 0xDA97F1AA, version = 500)
@@ -4825,6 +4946,108 @@ public class sceUtility extends HLEModule {
 	@HLEFunction(nid = 0x5DCBD3C0, version = 150)
     public int sceUtility_private_5DCBD3C0() {
 		// Has no parameters
+		return 0;
+	}
+
+	@HLEFunction(nid = 0x048BFC46, version = 150)
+    public int sceUtility_private_048BFC46(PspString libraryName, int unknown1, @CanBeNull TPointer optionAddr) {
+		String path = utilityPrivateModules.get(libraryName.getString());
+		if (path == null) {
+			return -1;
+		}
+
+        SceKernelLMOption lmOption = null;
+        if (optionAddr.isNotNull()) {
+            lmOption = new SceKernelLMOption();
+            lmOption.read(optionAddr);
+            if (log.isInfoEnabled()) {
+            	log.info(String.format("sceUtility_private_048BFC46 options: %s", lmOption));
+            }
+        }
+
+        int result = Modules.ModuleMgrForUserModule.hleKernelLoadModule(path, 0, 0, 0, 0, lmOption, false, false);
+
+		return result;
+	}
+
+	@HLEFunction(nid = 0x78A2FE0C, version = 150)
+    public int sceUtility_private_78A2FE0C(int uid) {
+        return Modules.ModuleMgrForUserModule.hleKernelUnloadModule(uid);
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x031D0944, version = 150)
+    public int sceUtility_private_031D0944(int unknown) {
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0xB9D9C78F, version = 150)
+    public int sceUtility_private_B9D9C78F(int unknown) {
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x61D0686E, version = 150)
+    public int sceUtility_netparam_internal_61D0686E(int unknown) {
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x4CB183A4, version = 150)
+    public int sceUtility_netparam_internal_4CB183A4(int unknown1, int unknown2) {
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x239F260D, version = 150)
+    public int sceUtility_netparam_internal_239F260D(int type, TPointer value) {
+		switch (type) {
+			case 0:
+				String configurationName = value.getStringZ();
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("sceUtility_netparam_internal_239F260D configurationName='%s'", configurationName));
+				}
+				break;
+			case 1:
+				String ssid = value.getStringZ();
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("sceUtility_netparam_internal_239F260D SSID='%s'", ssid));
+				}
+				break;
+			case 2:
+				int security = value.getValue32(); // One of PSP_NET_APCTL_INFO_SECURITY_TYPE_*
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("sceUtility_netparam_internal_239F260D security=%d", security));
+				}
+				break;
+			case 3:
+			case 4:
+			case 8:
+			case 13:
+			case 17:
+			case 21:
+			case 23:
+			case 24:
+			case 25:
+			case 26:
+			case 27:
+			case 29:
+			case 30:
+			case 31:
+				// ?
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("sceUtility_netparam_internal_239F260D unknown value: %s", Utilities.getMemoryDump(value.getAddress(), 16)));
+				}
+				break;
+			case 22:
+				String wepKey = value.getStringZ();
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("sceUtility_netparam_internal_239F260D wepKey='%s'", wepKey));
+				}
+				break;
+		}
+
 		return 0;
 	}
 }

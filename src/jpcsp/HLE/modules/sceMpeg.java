@@ -30,6 +30,9 @@ import static jpcsp.graphics.GeCommands.TPSM_PIXEL_STORAGE_MODE_32BIT_ABGR8888;
 import static jpcsp.util.Utilities.endianSwap16;
 import static jpcsp.util.Utilities.endianSwap32;
 import static jpcsp.util.Utilities.readUnaligned16;
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.CheckArgument;
 import jpcsp.HLE.HLEFunction;
@@ -59,6 +62,7 @@ import jpcsp.HLE.kernel.managers.SceUidManager;
 import jpcsp.HLE.kernel.types.IAction;
 import jpcsp.HLE.kernel.types.SceKernelErrors;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
+import jpcsp.HLE.kernel.types.SceMp4AvcNalStruct;
 import jpcsp.HLE.kernel.types.SceMpegAu;
 import jpcsp.HLE.kernel.types.SceMpegRingbuffer;
 import jpcsp.HLE.kernel.types.pspFileBuffer;
@@ -82,6 +86,10 @@ import jpcsp.util.Utilities;
 import org.apache.log4j.Logger;
 
 import com.twilight.h264.decoder.H264Context;
+
+//
+// The stackUsage values are based on tests performed using JpcspTrace
+//
 
 public class sceMpeg extends HLEModule {
     public static Logger log = Modules.getLogger("sceMpeg");
@@ -170,6 +178,9 @@ public class sceMpeg extends HLEModule {
 
     // MPEG processing vars.
     protected int mpegHandle;
+    protected TPointer mpegAvcDetail2Struct;
+    protected TPointer mpegAvcInfoStruct;
+    protected TPointer mpegAvcYuvStruct;
     protected SceMpegRingbuffer mpegRingbuffer;
     protected TPointer mpegRingbufferAddr;
     protected SceMpegAu mpegAtracAu;
@@ -209,7 +220,7 @@ public class sceMpeg extends HLEModule {
     protected static final int MPEG_AVC_DECODE_SUCCESS = 1;       // Internal value.
     protected static final int MPEG_AVC_DECODE_ERROR_FATAL = -8;
     protected int avcDecodeResult;
-    protected int avcGotFrame;
+    protected boolean avcGotFrame;
     protected boolean startedMpeg;
     protected byte[] audioDecodeBuffer;
     protected boolean[] allocatedEsBuffers;
@@ -227,7 +238,7 @@ public class sceMpeg extends HLEModule {
     private IVideoCodec videoCodec;
     private int videoCodecExtraData[];
     private static final int MAX_INT_BUFFERS_SIZE = 12;
-    private Set<int[]> intBuffers;
+    private static Set<int[]> intBuffers;
     private PesHeader audioPesHeader;
     private PesHeader videoPesHeader;
     private final PesHeader dummyPesHeader = new PesHeader(0);
@@ -1056,13 +1067,14 @@ public class sceMpeg extends HLEModule {
     	private int pixelMode;
     	private TPointer32 gotFrameAddr;
     	private boolean writeAbgr;
+    	private TPointer auAddr;
     	private long threadWakeupMicroTime;
 
     	@Override
 		public void run() {
     		while (!exit) {
     			if (waitForTrigger(100) && !exit) {
-					hleVideoDecoderStep(threadUid, buffer, frameWidth, pixelMode, gotFrameAddr, writeAbgr, threadWakeupMicroTime);
+					hleVideoDecoderStep(threadUid, buffer, frameWidth, pixelMode, gotFrameAddr, writeAbgr, auAddr, threadWakeupMicroTime);
     			}
     		}
 
@@ -1071,20 +1083,21 @@ public class sceMpeg extends HLEModule {
 
     	public void exit() {
     		exit = true;
-    		trigger(-1, 0, 0, -1, null, false, 0L);
+    		trigger(-1, 0, 0, -1, null, false, TPointer.NULL, 0L);
 
     		while (!done) {
     			Utilities.sleep(1);
     		}
     	}
 
-    	public void trigger(int threadUid, int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr, long threadWakeupMicroTime) {
+    	public void trigger(int threadUid, int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr, TPointer auAddr, long threadWakeupMicroTime) {
 			this.threadUid = threadUid;
 			this.buffer = buffer;
 			this.frameWidth = frameWidth;
 			this.pixelMode = pixelMode;
 			this.gotFrameAddr = gotFrameAddr;
 			this.writeAbgr = writeAbgr;
+			this.auAddr = auAddr;
 			this.threadWakeupMicroTime = threadWakeupMicroTime;
 
 			trigger();
@@ -1172,6 +1185,8 @@ public class sceMpeg extends HLEModule {
     	}
     }
 
+    SysMemInfo mpegAvcYuvMemInfo;
+
     private boolean decodeImage(int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr) {
     	if (pixelMode < 0) {
     		return false;
@@ -1183,23 +1198,77 @@ public class sceMpeg extends HLEModule {
 		}
 
     	if (decodedImageInfo == null) {
-    		avcGotFrame = 0;
+    		avcGotFrame = false;
     		if (gotFrameAddr != null) {
     			gotFrameAddr.setValue(avcGotFrame);
     		}
     		return false;
     	}
 
-    	avcGotFrame = decodedImageInfo.gotFrame ? 1 : 0;
+    	avcGotFrame = decodedImageInfo.gotFrame;
     	if (gotFrameAddr != null) {
+    		if (log.isTraceEnabled()) {
+    			log.trace(String.format("decodeImage returning avcGotFrame(0x%08X)=%b", gotFrameAddr.getAddress(), avcGotFrame));
+    		}
     		gotFrameAddr.setValue(avcGotFrame);
     	}
 
     	if (decodedImageInfo.gotFrame) {
-    		if (writeAbgr) {
-    			writeImageABGR(buffer, frameWidth, decodedImageInfo.imageWidth, decodedImageInfo.imageHeight, pixelMode, decodedImageInfo.abgr);
+    		if (buffer == 0) {
+    			int width = decodedImageInfo.imageWidth;
+    			int height = decodedImageInfo.imageHeight - 18;
+    			mpegAvcInfoStruct.setValue32(8, width);
+    			mpegAvcInfoStruct.setValue32(12, height);
+    			mpegAvcInfoStruct.setValue32(28, 1);
+    			mpegAvcInfoStruct.setValue32(32, decodedImageInfo.gotFrame);
+    			mpegAvcInfoStruct.setValue32(36, !decodedImageInfo.gotFrame);
+
+    			int size1 = ((width + 16) >> 5) * (height >> 1) * 16;
+    	    	int size2 = (width >> 5) * (height >> 1) * 16;
+    			if (mpegAvcYuvMemInfo == null) {
+    				int size = (size1 + size2) * 3 + 2 * 164;
+    				mpegAvcYuvMemInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.USER_PARTITION_ID, "mpegAvcYuv", SysMemUserForUser.PSP_SMEM_Low, size, 0);
+    			}
+
+    			int addr = mpegAvcYuvMemInfo.addr;
+
+    			mpegAvcYuvStruct.setValue32(0, addr);
+    			sceVideocodec.write(addr, size2, decodedImageInfo.luma, 0);
+    			addr += size1;
+
+    			mpegAvcYuvStruct.setValue32(4, addr);
+    			sceVideocodec.write(addr, size2, decodedImageInfo.luma, 1 * size2);
+    			addr += size2;
+
+    			mpegAvcYuvStruct.setValue32(8, addr);
+    			sceVideocodec.write(addr, size2, decodedImageInfo.luma, 2 * size2);
+    			addr += size1;
+
+    			mpegAvcYuvStruct.setValue32(12, addr);
+    			sceVideocodec.write(addr, size2, decodedImageInfo.luma, 3 * size2);
+    			addr += size2;
+
+    			mpegAvcYuvStruct.setValue32(16, addr);
+    			sceVideocodec.write(addr, size2 >> 1, decodedImageInfo.cr, 0);
+    			addr += size1 >> 1;
+
+    			mpegAvcYuvStruct.setValue32(20, addr);
+    			sceVideocodec.write(addr, size2 >> 1, decodedImageInfo.cr, size2 >> 1);
+    			addr += size2 >> 1;
+
+    			mpegAvcYuvStruct.setValue32(24, addr);
+    			sceVideocodec.write(addr, size2 >> 1, decodedImageInfo.cb, 0);
+    			addr += size1 >> 1;
+
+    			mpegAvcYuvStruct.setValue32(28, addr);
+    			sceVideocodec.write(addr, size2 >> 1, decodedImageInfo.cb, size2 >> 1);
+    			addr += size2 >> 1;
     		} else {
-    			writeImageYCbCr(buffer, decodedImageInfo.imageWidth, decodedImageInfo.imageHeight, decodedImageInfo.luma, decodedImageInfo.cb, decodedImageInfo.cr);
+	    		if (writeAbgr) {
+	    			writeImageABGR(buffer, frameWidth, decodedImageInfo.imageWidth, decodedImageInfo.imageHeight, pixelMode, decodedImageInfo.abgr);
+	    		} else {
+	    			writeImageYCbCr(buffer, decodedImageInfo.imageWidth, decodedImageInfo.imageHeight, decodedImageInfo.luma, decodedImageInfo.cb, decodedImageInfo.cr);
+	    		}
     		}
 
     		rememberLastFrame(decodedImageInfo.imageWidth, decodedImageInfo.imageHeight, decodedImageInfo.abgr);
@@ -1275,12 +1344,12 @@ public class sceMpeg extends HLEModule {
     	}
     }
 
-    private void decodeNextImage() {
+    private void decodeNextImage(TPointer auAddr) {
 		PesHeader pesHeader = new PesHeader(getRegisteredVideoChannel());
 		pesHeader.setDtsPts(UNKNOWN_TIMESTAMP);
 
 		DecodedImageInfo decodedImageInfo = new DecodedImageInfo();
-    	decodedImageInfo.frameEnd = readNextVideoFrame(pesHeader);
+    	decodedImageInfo.frameEnd = readNextVideoFrame(pesHeader, auAddr);
 
 		if (decodedImageInfo.frameEnd >= 0) {
 			if (videoBuffer.getLength() < decodedImageInfo.frameEnd) {
@@ -1324,6 +1393,9 @@ public class sceMpeg extends HLEModule {
 					}
 				}
 			}
+    	} else if (mpegRingbuffer.getPacketSize() == 0) {
+    		// Do not add a new decoded image when we are decoding in low level mode
+    		return;
     	}
 
     	if (videoPesHeader == null) {
@@ -1347,7 +1419,7 @@ public class sceMpeg extends HLEModule {
     	}
     }
 
-    private void hleVideoDecoderStep(int threadUid, int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr, long threadWakeupMicroTime) {
+    private void hleVideoDecoderStep(int threadUid, int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr, TPointer auAddr, long threadWakeupMicroTime) {
     	if (log.isDebugEnabled()) {
     		if (threadUid >= 0) {
     			log.debug(String.format("hleVideoDecoderStep threadUid=0x%X, buffer=0x%08X, frameWidth=%d, pixelMode=%d, gotFrameAddr=%s, writeAbgr=%b, %d decoded images", threadUid, buffer, frameWidth, pixelMode, gotFrameAddr, writeAbgr, decodedImages.size()));
@@ -1356,11 +1428,15 @@ public class sceMpeg extends HLEModule {
     		}
     	}
 
+    	if (buffer == 0) {
+    		decodeNextImage(auAddr);
+    	}
+
     	restartThread(threadUid, buffer, frameWidth, pixelMode, gotFrameAddr, writeAbgr, threadWakeupMicroTime);
 
     	// Always decode one frame in advance
 		if (decodedImages.size() <= 1 || isDecoderInErrorCondition()) {
-			decodeNextImage();
+			decodeNextImage(auAddr);
 		}
     }
 
@@ -1485,7 +1561,9 @@ public class sceMpeg extends HLEModule {
     }
 
     public void addToVideoBuffer(Memory mem, int addr, int length) {
-		videoBuffer.write(mem, addr, length);
+    	if (videoBuffer != null) {
+    		videoBuffer.write(mem, addr, length);
+    	}
     }
 
     private void addToUserDataBuffer(Memory mem, pspFileBuffer buffer, int length) {
@@ -1667,12 +1745,26 @@ public class sceMpeg extends HLEModule {
     	return false;
     }
 
-    private int readNextVideoFrame(PesHeader pesHeader) {
+    private int readNextVideoFrame(PesHeader pesHeader, TPointer auAddr) {
     	if (mpegRingbuffer == null) {
     		return -1;
     	}
 
     	Memory mem = Memory.getInstance();
+    	if (mpegRingbuffer.getPacketSize() == 0) {
+    		if (mpegAvcAu.esSize <= 0) {
+    			return -1;
+    		}
+    		int esSize = mpegAvcAu.esSize;
+    		addToVideoBuffer(mem, mpegAvcAu.esBuffer, esSize);
+    		mpegAvcAu.esSize = 0;
+    		if (auAddr.isNotNull()) {
+    			mpegAvcAu.write(auAddr);
+    		}
+
+    		return esSize;
+    	}
+
     	pspFileBuffer buffer = mpegRingbuffer.getVideoBuffer();
     	if (log.isDebugEnabled()) {
     		log.debug(String.format("readNextVideoFrame %s", mpegRingbuffer));
@@ -1899,7 +1991,7 @@ public class sceMpeg extends HLEModule {
 		memoryWriter.flush();
     }
 
-    private int[] getIntBuffer(int length) {
+    public static int[] getIntBuffer(int length) {
     	synchronized (intBuffers) {
         	for (int[] intBuffer : intBuffers) {
         		if (intBuffer.length >= length) {
@@ -1912,7 +2004,7 @@ public class sceMpeg extends HLEModule {
     	return new int[length];
     }
 
-    private void releaseIntBuffer(int[] intBuffer) {
+    public static void releaseIntBuffer(int[] intBuffer) {
     	if (intBuffer == null) {
     		return;
     	}
@@ -2041,6 +2133,19 @@ public class sceMpeg extends HLEModule {
         	videoDecoderThread.resetWaitingThreadInfo();
         }
 
+        // Initialize the memory structure used by sceMpegAvcDecodeDetail2()
+        mpegAvcInfoStruct = new TPointer(mem, mpegHandle + 0x200); // We need a structure of 40 bytes
+        mpegAvcInfoStruct.clear(40);
+        mpegAvcYuvStruct = new TPointer(mem, mpegHandle + 0x300); // We need a structure of 44 bytes
+        mpegAvcYuvStruct.clear(44);
+
+        // This is the structure passed to sceVideocodecDecode
+        mpegAvcDetail2Struct = new TPointer(mem, mpegHandle + 0x400); // We need a structure of 96 bytes
+        mpegAvcDetail2Struct.clear(96);
+        mpegAvcDetail2Struct.setValue32(16, mpegAvcInfoStruct.getAddress());
+        mpegAvcDetail2Struct.setValue32(44, mpegAvcYuvStruct.getAddress());
+        mpegAvcDetail2Struct.setValue32(48, 0); // Unknown value
+
         return 0;
     }
 
@@ -2110,7 +2215,7 @@ public class sceMpeg extends HLEModule {
     }
 
     public void hleMpegNotifyRingbufferRead() {
-    	if (!mpegRingbuffer.hasReadPackets()) {
+    	if (mpegRingbuffer != null && !mpegRingbuffer.hasReadPackets()) {
     		mpegRingbuffer.setReadPackets(1);
     		mpegRingbufferWrite();
     	}
@@ -2118,6 +2223,10 @@ public class sceMpeg extends HLEModule {
 
     public void setVideoCodecExtraData(int videoCodecExtraData[]) {
     	this.videoCodecExtraData = videoCodecExtraData;
+    }
+
+    public boolean hasVideoCodecExtraData() {
+    	return videoCodecExtraData != null;
     }
 
     public void setVideoFrameSizes(int videoFrameSizes[]) {
@@ -2314,6 +2423,9 @@ public class sceMpeg extends HLEModule {
 	        		if (psmfHeader == null || currentVideoTimestamp > psmfHeader.mpegLastTimestamp) {
 	        			result = SceKernelErrors.ERROR_MPEG_NO_DATA;
 	        		}
+	        	} else if (audioFrameLength <= 0 && psmfHeader.getSpecificStreamNum(PSMF_AUDIO_STREAM) <= 0) {
+        			// There is no audio stream, return ERROR_MPEG_NO_DATA
+        			result = SceKernelErrors.ERROR_MPEG_NO_DATA;
 	        	} else {
 	        		// Update the ringbuffer only in case of no error
 	        		mpegRingbufferWrite();
@@ -2387,10 +2499,10 @@ public class sceMpeg extends HLEModule {
     	return 0;
     }
 
-    public int hleMpegAvcDecode(int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr) {
+    public int hleMpegAvcDecode(int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr, TPointer auAddr) {
 		int threadUid = Modules.ThreadManForUserModule.getCurrentThreadID();
 		Modules.ThreadManForUserModule.hleBlockCurrentThread(SceKernelThreadInfo.JPCSP_WAIT_VIDEO_DECODER);
-		videoDecoderThread.trigger(threadUid, buffer, frameWidth, pixelMode, gotFrameAddr, writeAbgr, Emulator.getClock().microTime() + avcDecodeDelay);
+		videoDecoderThread.trigger(threadUid, buffer, frameWidth, pixelMode, gotFrameAddr, writeAbgr, auAddr, Emulator.getClock().microTime() + avcDecodeDelay);
 
 		return 0;
     }
@@ -2468,7 +2580,7 @@ public class sceMpeg extends HLEModule {
 		psmfHeader = new PSMFHeader(bufferAddr, mpegHeader);
 
         avcDecodeResult = MPEG_AVC_DECODE_SUCCESS;
-        avcGotFrame = 0;
+        avcGotFrame = false;
         if (mpegRingbuffer != null) {
         	resetMpegRingbuffer();
         	mpegRingbufferWrite();
@@ -2610,7 +2722,11 @@ public class sceMpeg extends HLEModule {
     }
 
     protected void checkEmptyVideoRingbuffer() {
-        if (!mpegRingbuffer.hasReadPackets() || (mpegRingbuffer.isEmpty() && videoBuffer.isEmpty() && decodedImages.isEmpty())) {
+    	if (mpegAvcAu.esSize > 0) {
+    		return;
+    	}
+
+    	if (!mpegRingbuffer.hasReadPackets() || (mpegRingbuffer.isEmpty() && videoBuffer.isEmpty() && decodedImages.isEmpty())) {
             delayThread(mpegDecodeErrorDelay);
             log.debug("ringbuffer and video buffer are empty");
             throw new SceKernelErrorException(SceKernelErrors.ERROR_MPEG_NO_DATA); // No more data in ringbuffer.
@@ -2650,8 +2766,8 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0x21FF80E4, version = 150, checkInsideInterrupt = true)
-    public int sceMpegQueryStreamOffset(@CheckArgument("checkMpegHandle") int mpeg, TPointer bufferAddr, TPointer32 offsetAddr) {
+    @HLEFunction(nid = 0x21FF80E4, version = 150, checkInsideInterrupt = true, stackUsage = 0x18)
+    public int sceMpegQueryStreamOffset(@CheckArgument("checkMpegHandle") int mpeg, TPointer bufferAddr, @BufferInfo(usage=Usage.out) TPointer32 offsetAddr) {
         analyseMpeg(bufferAddr.getAddress());
 
         // Check magic.
@@ -2691,8 +2807,8 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0x611E9E11, version = 150, checkInsideInterrupt = true)
-    public int sceMpegQueryStreamSize(TPointer bufferAddr, TPointer32 sizeAddr) {
+    @HLEFunction(nid = 0x611E9E11, version = 150, checkInsideInterrupt = true, stackUsage = 0x8)
+    public int sceMpegQueryStreamSize(TPointer bufferAddr, @BufferInfo(usage=Usage.out) TPointer32 sizeAddr) {
         analyseMpeg(bufferAddr.getAddress());
 
         // Check magic.
@@ -2717,7 +2833,7 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLELogging(level="info")
-    @HLEFunction(nid = 0x682A619B, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x682A619B, version = 150, checkInsideInterrupt = true, stackUsage = 0x48)
     public int sceMpegInit() {
     	finishMpeg();
     	finishStreams();
@@ -2731,7 +2847,7 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLELogging(level="info")
-    @HLEFunction(nid = 0x874624D6, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x874624D6, version = 150, checkInsideInterrupt = true, stackUsage = 0x18)
     public int sceMpegFinish() {
         finishMpeg();
         finishStreams();
@@ -2765,7 +2881,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0xD8C5F121, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0xD8C5F121, version = 150, checkInsideInterrupt = true, stackUsage = 0xA8)
     public int sceMpegCreate(TPointer mpeg, TPointer data, int size, @CanBeNull TPointer ringbufferAddr, int frameWidth, int mode, int ddrtop) {
     	return hleMpegCreate(mpeg, data, size, ringbufferAddr, frameWidth, mode, ddrtop);
     }
@@ -2777,7 +2893,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0x606A4649, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x606A4649, version = 150, checkInsideInterrupt = true, stackUsage = 0x28)
     public int sceMpegDelete(@CheckArgument("checkMpegHandle") int mpeg) {
         if (videoDecoderThread != null) {
         	videoDecoderThread.exit();
@@ -2786,6 +2902,8 @@ public class sceMpeg extends HLEModule {
 
         finishMpeg();
         finishStreams();
+
+        Modules.ThreadManForUserModule.hleKernelDelayThread(sceVideocodec.videocodecDeleteDelay, false);
 
         return 0;
     }
@@ -2799,7 +2917,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return stream Uid
      */
-    @HLEFunction(nid = 0x42560F23, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x42560F23, version = 150, checkInsideInterrupt = true, stackUsage = 0x48)
     public int sceMpegRegistStream(@CheckArgument("checkMpegHandle") int mpeg, int streamType, int streamChannelNum) {
     	StreamInfo info = new StreamInfo(streamType, streamChannelNum);
     	if (log.isDebugEnabled()) {
@@ -2817,7 +2935,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0x591A4AA2, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x591A4AA2, version = 150, checkInsideInterrupt = true, stackUsage = 0x18)
     public int sceMpegUnRegistStream(@CheckArgument("checkMpegHandle") int mpeg, int streamUid) {
     	StreamInfo info = getStreamInfo(streamUid);
     	if (info == null) {
@@ -2837,7 +2955,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0xA780CF7E, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0xA780CF7E, version = 150, checkInsideInterrupt = true, stackUsage = 0x18)
     public int sceMpegMallocAvcEsBuf(@CheckArgument("checkMpegHandle") int mpeg) {
         // sceMpegMallocAvcEsBuf does not allocate any memory.
     	// It returns 0x00000001 for the first call,
@@ -2863,7 +2981,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0xCEB870B1, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0xCEB870B1, version = 150, checkInsideInterrupt = true, stackUsage = 0x28)
     public int sceMpegFreeAvcEsBuf(@CheckArgument("checkMpegHandle") int mpeg, int esBuf) {
         if (esBuf == 0) {
             log.warn("sceMpegFreeAvcEsBuf(mpeg=0x" + Integer.toHexString(mpeg) + ", esBuf=0x" + Integer.toHexString(esBuf) + ") bad esBuf handle");
@@ -2885,7 +3003,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0xF8DCB679, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0xF8DCB679, version = 150, checkInsideInterrupt = true, stackUsage = 0x18)
     public int sceMpegQueryAtracEsSize(@CheckArgument("checkMpegHandle") int mpeg, @CanBeNull TPointer32 esSizeAddr, @CanBeNull TPointer32 outSizeAddr) {
         esSizeAddr.setValue(MPEG_ATRAC_ES_SIZE);
         outSizeAddr.setValue(MPEG_ATRAC_ES_OUTPUT_SIZE);
@@ -2919,7 +3037,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0x167AFD9E, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x167AFD9E, version = 150, checkInsideInterrupt = true, stackUsage = 0x18)
     public int sceMpegInitAu(@CheckArgument("checkMpegHandle") int mpeg, int buffer_addr, TPointer auAddr) {
         // Check if sceMpegInitAu is being called for AVC or ATRAC
         // and write the proper AU (access unit) struct.
@@ -2998,8 +3116,12 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0xFE246728, version = 150, checkInsideInterrupt = true)
-    public int sceMpegGetAvcAu(@CheckArgument("checkMpegHandle") int mpeg, int streamUid, TPointer auAddr, @CanBeNull TPointer32 attrAddr) {
+    public int sceMpegGetAvcAu(@CheckArgument("checkMpegHandle") int mpeg, int streamUid, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=24, usage=Usage.out) TPointer auAddr, @CanBeNull TPointer32 attrAddr) {
         mpegRingbufferRead();
+
+    	if (auAddr != null && auAddr.isNotNull()) {
+    		mpegAvcAu.read(auAddr);
+    	}
 
         checkEmptyVideoRingbuffer();
 
@@ -3040,7 +3162,7 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0x8C1E027D, version = 150, checkInsideInterrupt = true)
-    public int sceMpegGetPcmAu(@CheckArgument("checkMpegHandle") int mpeg, int streamUid, TPointer auAddr, @CanBeNull TPointer32 attrAddr) {
+    public int sceMpegGetPcmAu(@CheckArgument("checkMpegHandle") int mpeg, int streamUid, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=24, usage=Usage.out) TPointer auAddr, @CanBeNull TPointer32 attrAddr) {
         mpegRingbufferRead();
 
         if (!mpegRingbuffer.hasReadPackets() || mpegRingbuffer.isEmpty()) {
@@ -3090,7 +3212,7 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0xE1CE83A7, version = 150, checkInsideInterrupt = true)
-    public int sceMpegGetAtracAu(@CheckArgument("checkMpegHandle") int mpeg, int streamUid, TPointer auAddr, @CanBeNull TPointer32 attrAddr) {
+    public int sceMpegGetAtracAu(@CheckArgument("checkMpegHandle") int mpeg, int streamUid, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=24, usage=Usage.out) TPointer auAddr, @CanBeNull TPointer32 attrAddr) {
         mpegRingbufferRead();
 
         checkEmptyAudioRingbuffer();
@@ -3164,9 +3286,12 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0x0E3C2E9D, version = 150, checkInsideInterrupt = true)
-    public int sceMpegAvcDecode(@CheckArgument("checkMpegHandle") int mpeg, TPointer32 auAddr, int frameWidth, TPointer32 bufferAddr, TPointer32 gotFrameAddr) {
-        int au = auAddr.getValue();
-        int buffer = bufferAddr.getValue();
+    public int sceMpegAvcDecode(@CheckArgument("checkMpegHandle") int mpeg, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=24, usage=Usage.inout) TPointer auAddr, int frameWidth, @CanBeNull TPointer32 bufferAddr, @BufferInfo(usage=Usage.out) TPointer32 gotFrameAddr) {
+        int au = auAddr.getValue32();
+        int buffer = 0;
+        if (bufferAddr.isNotNull()) {
+        	buffer = bufferAddr.getValue();
+        }
 
         if (avcEsBuf != null && au == -1 && mpegRingbuffer == null) {
         	final int width = frameWidth;
@@ -3203,28 +3328,30 @@ public class sceMpeg extends HLEModule {
             return -1;
         }
 
-        checkEmptyVideoRingbuffer();
-
-    	if (auAddr != null && auAddr.isNotNull()) {
+    	if (auAddr.isNotNull()) {
     		mpegAvcAu.read(auAddr);
     	}
 
-        hleMpegAvcDecode(buffer, frameWidth, videoPixelMode, gotFrameAddr, true);
+        checkEmptyVideoRingbuffer();
+
+        hleMpegAvcDecode(buffer, frameWidth, videoPixelMode, gotFrameAddr, true, auAddr);
 
     	startedMpeg = true;
 
-        // Do not cache the video image as a texture in the VideoEngine to allow fluid rendering
-    	final int height = psmfHeader != null ? psmfHeader.getVideoHeight() : 272;
-        VideoEngine.getInstance().addVideoTexture(buffer, buffer + height * frameWidth * sceDisplay.getPixelFormatBytes(videoPixelMode));
+    	if (buffer != 0) {
+	        // Do not cache the video image as a texture in the VideoEngine to allow fluid rendering
+	    	final int height = psmfHeader != null ? psmfHeader.getVideoHeight() : 272;
+	        VideoEngine.getInstance().addVideoTexture(buffer, buffer + height * frameWidth * sceDisplay.getPixelFormatBytes(videoPixelMode));
+    	}
 
         if (log.isDebugEnabled()) {
-            log.debug(String.format("sceMpegAvcDecode buffer=0x%08X, dts=0x%X, pts=0x%X, gotFrame=%d", buffer, mpegAvcAu.dts, mpegAvcAu.pts, avcGotFrame));
+            log.debug(String.format("sceMpegAvcDecode buffer=0x%08X, dts=0x%X, pts=0x%X, gotFrame=%b", buffer, mpegAvcAu.dts, mpegAvcAu.pts, avcGotFrame));
         }
 
         // Correct decoding.
         avcDecodeResult = MPEG_AVC_DECODE_SUCCESS;
 
-    	if (auAddr != null && auAddr.isNotNull()) {
+    	if (auAddr.isNotNull()) {
     		mpegAvcAu.write(auAddr);
     	}
 
@@ -3266,7 +3393,7 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0xA11C7026, version = 150, checkInsideInterrupt = true)
-    public int sceMpegAvcDecodeMode(@CheckArgument("checkMpegHandle") int mpeg, TPointer32 modeAddr) {
+    public int sceMpegAvcDecodeMode(@CheckArgument("checkMpegHandle") int mpeg, @BufferInfo(usage=Usage.in) TPointer32 modeAddr) {
         // -1 is a default value.
         int mode = modeAddr.getValue(0);
         int pixelMode = modeAddr.getValue(4);
@@ -3292,9 +3419,14 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0x740FCCD1, version = 150, checkInsideInterrupt = true)
-    public int sceMpegAvcDecodeStop(@CheckArgument("checkMpegHandle") int mpeg, int frameWidth, TPointer32 bufferAddr, TPointer32 gotFrameAddr) {
-    	// Decode any pending image
-    	decodeImage(bufferAddr.getValue(), frameWidth, videoPixelMode, gotFrameAddr, true);
+    public int sceMpegAvcDecodeStop(@CheckArgument("checkMpegHandle") int mpeg, int frameWidth, @CanBeNull TPointer32 bufferAddr, TPointer32 gotFrameAddr) {
+        int buffer = 0;
+        if (bufferAddr.isNotNull()) {
+        	buffer = bufferAddr.getValue();
+        }
+
+        // Decode any pending image
+    	decodeImage(buffer, frameWidth, videoPixelMode, gotFrameAddr, true);
 
         return 0;
     }
@@ -3380,22 +3512,26 @@ public class sceMpeg extends HLEModule {
             return -1;
         }
 
+    	if (auAddr.isNotNull()) {
+    		mpegAvcAu.read(auAddr);
+    	}
+
         checkEmptyVideoRingbuffer();
 
         // sceMpegAvcDecodeYCbCr() is performing the video decoding and
         // sceMpegAvcCsc() is transforming the YCbCr image into ABGR.
-        hleMpegAvcDecode(bufferAddr.getValue() + YCBCR_DATA_OFFSET, 0, videoPixelMode, gotFrameAddr, false);
+        hleMpegAvcDecode(bufferAddr.getValue() + YCBCR_DATA_OFFSET, 0, videoPixelMode, gotFrameAddr, false, auAddr);
 
     	startedMpeg = true;
 
         if (log.isDebugEnabled()) {
-            log.debug(String.format("sceMpegAvcDecodeYCbCr *buffer=0x%08X, currentTimestamp=%d, avcGotFrame=%d", bufferAddr.getValue(), mpegAvcAu.pts, avcGotFrame));
+            log.debug(String.format("sceMpegAvcDecodeYCbCr *buffer=0x%08X, currentTimestamp=%d, avcGotFrame=%b", bufferAddr.getValue(), mpegAvcAu.pts, avcGotFrame));
         }
 
         // Correct decoding.
         avcDecodeResult = MPEG_AVC_DECODE_SUCCESS;
 
-    	if (auAddr != null && auAddr.isNotNull()) {
+    	if (auAddr.isNotNull()) {
         	mpegAvcAu.esSize = 0;
     		mpegAvcAu.write(auAddr);
     	}
@@ -3413,9 +3549,14 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0xF2930C9C, version = 150, checkInsideInterrupt = true)
-    public int sceMpegAvcDecodeStopYCbCr(@CheckArgument("checkMpegHandle") int mpeg, TPointer32 bufferAddr, TPointer32 gotFrameAddr) {
-    	// Decode any pending image
-    	decodeImage(bufferAddr.getValue(), 0, videoPixelMode, gotFrameAddr, false);
+    public int sceMpegAvcDecodeStopYCbCr(@CheckArgument("checkMpegHandle") int mpeg, @CanBeNull TPointer32 bufferAddr, TPointer32 gotFrameAddr) {
+        int buffer = 0;
+        if (bufferAddr.isNotNull()) {
+        	buffer = bufferAddr.getValue();
+        }
+
+        // Decode any pending image
+    	decodeImage(buffer, 0, videoPixelMode, gotFrameAddr, false);
 
         return 0;
     }
@@ -3532,7 +3673,11 @@ public class sceMpeg extends HLEModule {
         int[] abgr = getIntBuffer(length);
         H264Utils.YUV2ABGR(width, height, luma, cb, cr, abgr);
 
-		final int bytesPerPixel = sceDisplay.getPixelFormatBytes(videoPixelMode);
+        releaseIntBuffer(luma);
+        releaseIntBuffer(cb);
+        releaseIntBuffer(cr);
+
+        final int bytesPerPixel = sceDisplay.getPixelFormatBytes(videoPixelMode);
 
 		// Do not cache the video image as a texture in the VideoEngine to allow fluid rendering
         VideoEngine.getInstance().addVideoTexture(destAddr.getAddress(), destAddr.getAddress() + (rangeY + rangeHeight) * frameWidth * bytesPerPixel);
@@ -3560,6 +3705,7 @@ public class sceMpeg extends HLEModule {
 	        	addr += frameWidth * bytesPerPixel;
 	        }
 		}
+		releaseIntBuffer(abgr);
 
         if (log.isDebugEnabled()) {
         	log.debug(String.format("sceMpegAvcCsc writing to 0x%08X-0x%08X, vcount=%d", destAddr.getAddress(), destAddr.getAddress() + (rangeY + rangeHeight) * frameWidth * bytesPerPixel, Modules.sceDisplayModule.getVcount()));
@@ -3610,7 +3756,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0xD7A29F46, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0xD7A29F46, version = 150, checkInsideInterrupt = true, stackUsage = 0x8)
     public int sceMpegRingbufferQueryMemSize(int packets) {
         return getSizeFromPackets(packets);
     }
@@ -3627,7 +3773,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0x37295ED8, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x37295ED8, version = 150, checkInsideInterrupt = true, stackUsage = 0x38)
     public int sceMpegRingbufferConstruct(TPointer ringbufferAddr, int packets, @CanBeNull TPointer data, int size, @CanBeNull TPointer callbackAddr, int callbackArgs) {
         if (size < getSizeFromPackets(packets)) {
             log.warn(String.format("sceMpegRingbufferConstruct insufficient space: size=%d, packets=%d", size, packets));
@@ -3647,7 +3793,7 @@ public class sceMpeg extends HLEModule {
      * 
      * @return
      */
-    @HLEFunction(nid = 0x13407F13, version = 150, checkInsideInterrupt = true)
+    @HLEFunction(nid = 0x13407F13, version = 150, checkInsideInterrupt = true, stackUsage = 0x8)
     public int sceMpegRingbufferDestruct(TPointer ringbufferAddr) {
     	if (mpegRingbuffer != null) {
 	    	mpegRingbuffer.read(ringbufferAddr);
@@ -3830,10 +3976,62 @@ public class sceMpeg extends HLEModule {
         return 0;
     }
 
-    @HLEUnimplemented
     @HLEFunction(nid = 0x11F95CF1, version = 150)
-    public int sceMpegGetAvcNalAu() {
-        return 0;
+    public int sceMpegGetAvcNalAu(int mpeg, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=32, usage=Usage.in) TPointer mp4AvcNalStructAddr, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=24, usage=Usage.out) TPointer auAddr) {
+    	// Based on information found in
+    	//    https://github.com/Rinnegatamante/lua-player-plus/blob/master/lpp-c%2B%2B/Libs/Mp4/Mp4.c
+    	SceMp4AvcNalStruct mp4AvcNalStruct = new SceMp4AvcNalStruct();
+    	mp4AvcNalStruct.read(mp4AvcNalStructAddr);
+
+    	if (log.isTraceEnabled()) {
+    		log.trace(String.format("sceMpegGetAvcNalAu mp4AvcNalStruct: %s", mp4AvcNalStruct));
+    	}
+
+    	SceMpegAu au = new SceMpegAu();
+    	au.read(auAddr);
+
+    	au.esBuffer = mp4AvcNalStruct.nalBuffer;
+    	au.esSize = mp4AvcNalStruct.nalSize;
+    	// PSP is returning 0 for pts & dts
+    	au.pts = 0L;
+    	au.dts = 0L;
+
+    	au.write(auAddr);
+
+    	if (!hasVideoCodecExtraData()) {
+	    	// Build the video codec "extradata" in the expected format
+	    	int[] videoCodecExtraData = new int[8 + mp4AvcNalStruct.spsSize + 3 + mp4AvcNalStruct.ppsSize];
+	    	int offset = 0;
+	    	videoCodecExtraData[offset++] = 0x01; // Need to start with 1
+	    	offset += 3; // Unused
+	    	videoCodecExtraData[offset++] = (mp4AvcNalStruct.nalPrefixSize - 1) & 0x03; // nal length size
+	    	videoCodecExtraData[offset++] = 0x01; // Number of sps
+	    	videoCodecExtraData[offset++] = (mp4AvcNalStruct.spsSize >> 8) & 0xFF;
+	    	videoCodecExtraData[offset++] = (mp4AvcNalStruct.spsSize     ) & 0xFF;
+	    	IMemoryReader spsReader = MemoryReader.getMemoryReader(mp4AvcNalStruct.spsBuffer, mp4AvcNalStruct.spsSize, 1);
+	    	for (int i = 0; i < mp4AvcNalStruct.spsSize; i++) {
+	    		videoCodecExtraData[offset++] = spsReader.readNext();
+	    	}
+	    	videoCodecExtraData[offset++] = 0x01; // Number of pps
+	    	videoCodecExtraData[offset++] = (mp4AvcNalStruct.ppsSize >> 8) & 0xFF;
+	    	videoCodecExtraData[offset++] = (mp4AvcNalStruct.ppsSize     ) & 0xFF;
+	    	IMemoryReader ppsReader = MemoryReader.getMemoryReader(mp4AvcNalStruct.ppsBuffer, mp4AvcNalStruct.ppsSize, 1);
+	    	for (int i = 0; i < mp4AvcNalStruct.ppsSize; i++) {
+	    		videoCodecExtraData[offset++] = ppsReader.readNext();
+	    	}
+
+	    	setVideoCodecExtraData(videoCodecExtraData);
+
+	    	if (log.isDebugEnabled()) {
+	    		byte[] buffer = new byte[videoCodecExtraData.length];
+	    		for (int i = 0; i < buffer.length; i++) {
+	    			buffer[i] = (byte) videoCodecExtraData[i];
+	    		}
+	    		log.debug(String.format("sceMpegGetAvcNalAu videoCodecExtraData: %s", Utilities.getMemoryDump(buffer, 0, buffer.length)));
+	    	}
+    	}
+
+    	return 0;
     }
 
     @HLEUnimplemented
@@ -3844,20 +4042,33 @@ public class sceMpeg extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x6F314410, version = 150)
-    public int sceMpegAvcDecodeGetDecodeSEI() {
+    public int sceMpegAvcDecodeGetDecodeSEI(int mpeg, @BufferInfo(usage=Usage.out) TPointer32 decodeSEIAddr) {
+    	decodeSEIAddr.setValue(0);
         return 0;
     }
 
     @HLEUnimplemented
     @HLEFunction(nid = 0xAB0E9556, version = 150)
-    public int sceMpegAvcDecodeDetailIndex() {
-        return 0;
+    public int sceMpegAvcDecodeDetailIndex(int mpeg, int index, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=52, usage=Usage.out) TPointer32 detail) {
+    	detail.setValue(8, mpegAvcInfoStruct.getValue32(8)); // image width
+    	detail.setValue(12, mpegAvcInfoStruct.getValue32(12)); // image height
+
+    	if (log.isDebugEnabled()) {
+    		log.debug(String.format("sceMpegAvcDecodeDetailIndex returning width=%d, height=%d", detail.getValue(8), detail.getValue(12)));
+    	}
+
+    	return 0;
     }
 
-    @HLEUnimplemented
     @HLEFunction(nid = 0xCF3547A2, version = 150)
-    public int sceMpegAvcDecodeDetail2() {
-        return 0;
+    public int sceMpegAvcDecodeDetail2(int mpeg, @BufferInfo(usage=Usage.out) TPointer32 detail) {
+    	detail.setValue(mpegAvcDetail2Struct.getAddress());
+
+    	if (log.isTraceEnabled()) {
+    		log.trace(String.format("sceMpegAvcDecodeDetail2 detail2 structure: %s", Utilities.getMemoryDump(mpegAvcDetail2Struct.getAddress(), 96)));
+    	}
+
+    	return 0;
     }
 
     @HLEFunction(nid = 0xF5E7EA31, version = 150)
@@ -3877,7 +4088,7 @@ public class sceMpeg extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0xD1CE4950, version = 150)
-    public int sceMpegAvcCscMode() {
+    public int sceMpegAvcCscMode(int mpeg, @BufferInfo(usage=Usage.in) TPointer32 modeAddr) {
         return 0;
     }
 

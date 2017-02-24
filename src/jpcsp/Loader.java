@@ -1208,8 +1208,7 @@ public class Loader {
                 } else {
                     // Attempt to fixup stub to known syscalls
                     int code = nidMapper.nidToSyscall(nid);
-                    if (code != -1)
-                    {
+                    if (code != -1) {
                         // Fixup stub, replacing nop with syscall
                     	int returnInstruction = // jr $ra
                     	    (AllegrexOpcodes.SPECIAL << 26)
@@ -1555,8 +1554,7 @@ public class Loader {
         }
 
         shdr = elf.getSectionHeader(".sceStub.text");
-        if (shdr != null)
-        {
+        if (shdr != null) {
             module.stubtextsection[0] = shdr.getSh_addr(baseAddress);
             module.stubtextsection[1] = shdr.getSh_size();
         }
@@ -1569,21 +1567,48 @@ public class Loader {
     }
 
     /**
-     * Apply patches to some VSH modules in a similar way to ProCFW.
+     * Apply patches to some VSH and Kernel modules
      * 
      * @param module
      */
     private void patchModule(SceModule module) {
     	Memory mem = Emulator.getMemory();
 
+    	// Same patches as ProCFW
     	if ("vsh_module".equals(module.modname)) {
     		patch(mem, module, 0x000122B0, 0x506000E0, NOP());
     		patch(mem, module, 0x00012058, 0x1440003B, NOP());
     		patch(mem, module, 0x00012060, 0x14400039, NOP());
     	}
+
+    	// Patches to replace "https" with "http" so that the URL calls
+    	// can be proxied through the internal HTTP server.
     	if ("sceNpCommerce2".equals(module.modname)) {
     		patch(mem, module, 0x0000A598, 0x00000073, 0x00000000); // replace "https" with "http"
     		patch(mem, module, 0x00003A60, 0x240701BB, 0x24070050); // replace port 443 with 80
+    	}
+    	if ("sceNpCore".equals(module.modname)) {
+    		patchRemoveStringChar(mem, module, 0x00000D50, 's'); // replace "https" with "http" in "https://auth.%s.ac.playstation.net/nav/auth"
+    	}
+    	if ("sceNpService".equals(module.modname)) {
+    		patch(mem, module, 0x0001075C, 0x00000073, 0x00000000); // replace "https" with "http" for "https://getprof.%s.np.community.playstation.net/basic_view/sec/get_self_profile"
+    	}
+    	if ("sceVshNpInstaller_Module".equals(module.modname)) {
+    		patchRemoveStringChar(mem, module, 0x00016F90, 's'); // replace "https" with "http" in "https://commerce.%s.ac.playstation.net/cap.m"
+    		patchRemoveStringChar(mem, module, 0x00016FC0, 's'); // replace "https" with "http" in "https://commerce.%s.ac.playstation.net/cdp.m"
+    		patchRemoveStringChar(mem, module, 0x00016FF0, 's'); // replace "https" with "http" in "https://commerce.%s.ac.playstation.net/kdp.m"
+    		patchRemoveStringChar(mem, module, 0x00017020, 's'); // replace "https" with "http" in "https://account.%s.ac.playstation.net/ecomm/ingame/startDownloadDRM"
+    		patchRemoveStringChar(mem, module, 0x00017064, 's'); // replace "https" with "http" in "https://account.%s.ac.playstation.net/ecomm/ingame/finishDownloadDRM"
+    	}
+    	if ("marlindownloader".equals(module.modname)) {
+    		patchRemoveStringChar(mem, module, 0x000046C8, 's'); // replace "https" with "http" in "https://mds.%s.ac.playstation.net/"
+    	}
+    	if ("sceVshStoreBrowser_Module".equals(module.modname)) {
+    		patchRemoveStringChar(mem, module, 0x0005A244, 's'); // replace "https" with "http" in "https://nsx-e.sec.%s.dl.playstation.net/nsx/sec/..."
+    		patchRemoveStringChar(mem, module, 0x0005A2D8, 's'); // replace "https" with "http" in "https://nsx.sec.%s.dl.playstation.net/nsx/sec/..."
+    	}
+    	if ("sceGameUpdate_Library".equals(module.modname)) {
+    		patchRemoveStringChar(mem, module, 0x000030C4, 's'); // replace "https" with "http" in "https://a0.ww.%s.dl.playstation.net/tpl/..."
     	}
     }
 
@@ -1593,6 +1618,18 @@ public class Loader {
     		log.error(String.format("Patching of module '%s' failed at offset 0x%X, 0x%08X found instead of 0x%08X", module.modname, offset, checkValue, oldValue));
     	} else {
     		mem.write32(module.baseAddress + offset, newValue);
+    	}
+    }
+
+    private void patchRemoveStringChar(Memory mem, SceModule module, int offset, int oldChar) {
+    	int address = module.baseAddress + offset;
+    	int checkChar = mem.read8(address);
+    	if (checkChar != oldChar) {
+    		log.error(String.format("Patching of module '%s' failed at offset 0x%X, 0x%02X found instead of 0x%02X", module.modname, offset, checkChar, oldChar));
+    	} else {
+    		String s = Utilities.readStringZ(address);
+    		s = s.substring(1);
+    		Utilities.writeStringZ(mem, address, s);
     	}
     }
 }

@@ -222,7 +222,11 @@ public class SysMemUserForUser extends HLEModule {
 
     // Allocates to 256-byte alignment
     public SysMemInfo malloc(int partitionid, String name, int type, int size, int addr) {
-        int allocatedAddress = 0;
+    	if (freeMemoryChunks == null) {
+    		return null;
+    	}
+
+    	int allocatedAddress = 0;
         int allocatedSize = 0;
 
         if (partitionid >= 0 && partitionid < freeMemoryChunks.length && freeMemoryChunks[partitionid] != null) {
@@ -402,23 +406,18 @@ public class SysMemUserForUser extends HLEModule {
         DumpDebugState.log("Allocated blocks:\n" + getDebugAllocatedMem() + "\n");
     }
 
-    public String hleKernelSprintf(CpuState cpu, String format, int firstRegister) {
+    public String hleKernelSprintf(CpuState cpu, String format, Object[] formatParameters) {
     	String formattedMsg = format;
     	try {
-        	// For now, use only the 7 register parameters: $a1-$a3, $t0-$t3
-        	// Further parameters should be retrieved from the stack.
-    		Object[] formatParameters = new Object[_t3 - firstRegister + 1];
-    		for (int i = 0; i < formatParameters.length; i++) {
-    			formatParameters[i] = cpu.getRegister(firstRegister + i);
-    		}
-
     		// Translate the C-like format string to a Java format string:
     		// - %u or %i -> %d
     		// - %4u -> %4d
     		// - %lld or %ld -> %d
+    		// - %llx or %lx -> %x
     		// - %p -> %08X
     		String javaMsg = format;
     		javaMsg = javaMsg.replaceAll("\\%(\\d*)l?l?[uid]", "%$1d");
+    		javaMsg = javaMsg.replaceAll("\\%(\\d*)l?l?([xX])", "%$1$2");
     		javaMsg = javaMsg.replaceAll("\\%p", "%08X");
 
     		// Support for "%s" (at any place and can occur multiple times)
@@ -443,6 +442,22 @@ public class SysMemUserForUser extends HLEModule {
     	}
 
     	return formattedMsg;
+    }
+
+    public String hleKernelSprintf(CpuState cpu, String format, int firstRegister) {
+    	// For now, use only the 7 register parameters: $a1-$a3, $t0-$t3
+    	// Further parameters are retrieved from the stack (assume max. 10 stack parameters).
+		int registerParameters = _t3 - firstRegister + 1;
+		Object[] formatParameters = new Object[registerParameters + 10];
+		for (int i = 0; i < registerParameters; i++) {
+			formatParameters[i] = cpu.getRegister(firstRegister + i);
+		}
+		Memory mem = Memory.getInstance();
+		for (int i = registerParameters; i < formatParameters.length; i++) {
+			formatParameters[i] = mem.read32(cpu._sp + ((i - registerParameters) << 2));
+		}
+
+		return hleKernelSprintf(cpu, format, formatParameters);
     }
 
     public int hleKernelPrintf(CpuState cpu, PspString formatString, Logger logger) {

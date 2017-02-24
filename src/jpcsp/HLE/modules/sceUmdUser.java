@@ -40,6 +40,7 @@ import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
 import jpcsp.HLE.kernel.types.ThreadWaitInfo;
 import jpcsp.HLE.kernel.types.pspUmdInfo;
 import jpcsp.filesystems.umdiso.UmdIsoReader;
+import jpcsp.scheduler.Scheduler;
 
 import org.apache.log4j.Logger;
 
@@ -79,9 +80,22 @@ public class sceUmdUser extends HLEModule {
     }
 
     private static class DelayedUmdSwitch implements IAction {
+    	private UmdIsoReader iso;
+
+    	public DelayedUmdSwitch(UmdIsoReader iso) {
+			this.iso = iso;
+		}
+
 		@Override
 		public void execute() {
-			Modules.sceUmdUserModule.hleDelayedUmdSwitch();
+			Modules.sceUmdUserModule.hleDelayedUmdSwitch(iso);
+		}
+    }
+
+    private static class DelayedUmdRemoved implements IAction {
+		@Override
+		public void execute() {
+			Modules.sceUmdUserModule.hleDelayedUmdSwitch(null);
 		}
     }
 
@@ -103,7 +117,7 @@ public class sceUmdUser extends HLEModule {
         this.iso = iso;
         setUmdActivated();
     }
-    
+
     public void setUmdErrorStat(int stat) {
         umdErrorStat = stat;
     }
@@ -244,17 +258,30 @@ public class sceUmdUser extends HLEModule {
 		Emulator.getMainGUI().onUmdChange();
 	}
 
-	public void hleUmdSwitch() {
-		// First notify that the UMD has been removed
-		int notifyArg = getNotificationArg(false);
-    	Modules.ThreadManForUserModule.hleKernelNotifyCallback(SceKernelThreadInfo.THREAD_CALLBACK_UMD, notifyArg);
+	public void hleUmdSwitch(UmdIsoReader newIso) {
+		Scheduler scheduler = Scheduler.getInstance();
 
-    	// After 100ms delay, notify that a new UMD has been inserted
-    	long schedule = Emulator.getClock().microTime() + 100 * 1000;
-    	Emulator.getScheduler().addAction(schedule, new DelayedUmdSwitch());
+		long delayedUmdSwitchSchedule = Scheduler.getNow();
+		if (iso != null) {
+			// First notify that the UMD has been removed
+			scheduler.addAction(new DelayedUmdRemoved());
+
+	    	// After 100ms delay, notify that a new UMD has been inserted
+	    	delayedUmdSwitchSchedule += 100 * 1000;
+		}
+
+		scheduler.addAction(delayedUmdSwitchSchedule, new DelayedUmdSwitch(newIso));
 	}
 
-	protected void hleDelayedUmdSwitch() {
+	protected void hleDelayedUmdRemoved() {
+		int notifyArg = getNotificationArg(false);
+    	Modules.ThreadManForUserModule.hleKernelNotifyCallback(SceKernelThreadInfo.THREAD_CALLBACK_UMD, notifyArg);
+	}
+
+	protected void hleDelayedUmdSwitch(UmdIsoReader iso) {
+		Modules.IoFileMgrForUserModule.setIsoReader(iso);
+		setIsoReader(iso);
+
 		int notifyArg = getNotificationArg() | PSP_UMD_CHANGED;
     	Modules.ThreadManForUserModule.hleKernelNotifyCallback(SceKernelThreadInfo.THREAD_CALLBACK_UMD, notifyArg);
 	}

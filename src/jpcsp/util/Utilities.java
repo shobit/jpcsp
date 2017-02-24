@@ -24,6 +24,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.InetAddress;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -197,6 +198,19 @@ public class Utilities {
 
     public static String readStringZ(int address) {
         return readStringZ(Memory.getInstance(), address);
+    }
+
+    public static String readStringZ(byte[] buffer, int offset) {
+    	StringBuilder s = new StringBuilder();
+    	while (offset < buffer.length) {
+    		byte b = buffer[offset++];
+    		if (b == (byte) 0) {
+    			break;
+    		}
+    		s.append((char) b);
+    	}
+
+    	return s.toString();
     }
 
     public static String readStringNZ(int address, int n) {
@@ -628,7 +642,10 @@ public class Utilities {
     }
 
     public static String getMemoryDump(int address, int length, int step, int bytesPerLine) {
-        if (!Memory.isAddressGood(address) || length <= 0 || bytesPerLine <= 0 || step <= 0) {
+    	if (!Memory.isAddressGood(address)) {
+    		return String.format("Invalid memory address 0x%08X", address);
+    	}
+        if (length <= 0 || bytesPerLine <= 0 || step <= 0) {
             return "";
         }
 
@@ -1146,6 +1163,36 @@ public class Utilities {
         return newArray;
     }
 
+    public static String[] add(String[] array, String s) {
+    	if (s == null) {
+    		return array;
+    	}
+    	if (array == null) {
+    		return new String[] { s };
+    	}
+
+    	String[] newArray = new String[array.length + 1];
+    	System.arraycopy(array, 0, newArray, 0, array.length);
+    	newArray[array.length] = s;
+
+    	return newArray;
+    }
+
+    public static File[] add(File[] array, File f) {
+    	if (f == null) {
+    		return array;
+    	}
+    	if (array == null) {
+    		return new File[] { f };
+    	}
+
+    	File[] newArray = new File[array.length + 1];
+    	System.arraycopy(array, 0, newArray, 0, array.length);
+    	newArray[array.length] = f;
+
+    	return newArray;
+    }
+
     public static byte[] readCompleteFile(IVirtualFile vFile) {
         if (vFile == null) {
             return null;
@@ -1296,4 +1343,45 @@ public class Utilities {
 			Emulator.log.error(e);
 		}
     }
+
+    public static int getDefaultPortForProtocol(String protocol) {
+		if ("http".equals(protocol)) {
+			return 80;
+		}
+		if ("https".equals(protocol)) {
+			return 443;
+		}
+
+		return -1;
+	}
+
+	public static String[] merge(String[] a1, String[] a2) {
+		if (a1 == null) {
+			return a2;
+		}
+		if (a2 == null) {
+			return a1;
+		}
+
+		String[] a = new String[a1.length + a2.length];
+		System.arraycopy(a1, 0, a, 0, a1.length);
+		System.arraycopy(a2, 0, a, a1.length, a2.length);
+
+		return a;
+	}
+
+	public static InetAddress[] merge(InetAddress[] a1, InetAddress[] a2) {
+		if (a1 == null) {
+			return a2;
+		}
+		if (a2 == null) {
+			return a1;
+		}
+
+		InetAddress[] a = new InetAddress[a1.length + a2.length];
+		System.arraycopy(a1, 0, a, 0, a1.length);
+		System.arraycopy(a2, 0, a, a1.length, a2.length);
+
+		return a;
+	}
 }

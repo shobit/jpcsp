@@ -115,6 +115,7 @@ public class RuntimeContext {
 	private static RuntimeSyncThread runtimeSyncThread = null;
 	private static RuntimeThread syscallRuntimeThread;
 	private static sceDisplay sceDisplayModule;
+	private static final Object idleSyncObject = new Object();
 
 	private static class CompilerEnabledSettingsListerner extends AbstractBoolSettingsListener {
 		@Override
@@ -216,7 +217,7 @@ public class RuntimeContext {
     @SuppressWarnings("unused")
 	public static int call(int address) throws Exception {
 		if (debugCodeBlockCalls && log.isDebugEnabled()) {
-			log.debug(String.format("RuntimeContext.call address=0x%08X", address));
+			log.debug(String.format("RuntimeContext.call address=0x%08X, $ra=0x%08X", address, cpu._ra));
 		}
         int returnValue = jumpCall(address);
 
@@ -472,35 +473,54 @@ public class RuntimeContext {
 
             log.debug("Starting Idle State...");
             idleDuration.start();
-            while (isIdle) {
-            	checkStoppedThread();
-            	{
-            		// Do not take the duration of sceDisplay into idleDuration
-            		idleDuration.end();
-            		syncEmulator(true);
-            		idleDuration.start();
-            	}
-                syncPause();
-                checkPendingCallbacks();
-                scheduler.step();
-                if (threadMan.isIdleThread(threadMan.getCurrentThread())) {
-                	threadMan.checkCallbacks();
-                	threadMan.hleRescheduleCurrentThread();
-                }
+			while (isIdle) {
+				checkStoppedThread();
+				{
+					// Do not take the duration of sceDisplay into idleDuration
+					idleDuration.end();
+					syncEmulator(true);
+					idleDuration.start();
+				}
+				syncPause();
+				checkPendingCallbacks();
+				scheduler.step();
+				if (threadMan.isIdleThread(threadMan.getCurrentThread())) {
+					threadMan.checkCallbacks();
+					threadMan.hleRescheduleCurrentThread();
+				}
 
-                if (isIdle) {
-                	long delay = scheduler.getNextActionDelay(idleSleepMicros);
-                	if (delay > 0) {
-                		int intDelay;
-	                	if (delay >= idleSleepMicros) {
-	                		intDelay = idleSleepMicros;
-	                	} else {
-	                		intDelay = (int) delay;
-	                	}
-                		sleep(intDelay / 1000, intDelay % 1000);
-                	}
-                }
-            }
+				if (isIdle) {
+					// While being idle, try to reduce the load on the host CPU
+					// by sleeping as much as possible.
+					// We can now sleep until the next scheduler action need to be executed.
+					//
+					// If the scheduler is receiving from another thread, a new action
+					// to be executed earlier, the wait state of this thread
+					// will be interrupted (see onNextScheduleModified()).
+					// This is for example the case when a GE list is ending (FINISH/SIGNAL + END)
+					// and a GE callback has to be executed immediately.
+					long delay = scheduler.getNextActionDelay(idleSleepMicros);
+					if (delay > 0) {
+						int intDelay;
+						if (delay >= idleSleepMicros) {
+							intDelay = idleSleepMicros;
+						} else {
+							intDelay = (int) delay;
+						}
+
+						try {
+							// Wait for intDelay milliseconds.
+							// The wait state will be terminated whenever the scheduler
+							// is receiving a new scheduler action (see onNextScheduleModified()).
+							synchronized (idleSyncObject) {
+								idleSyncObject.wait(intDelay / 1000, intDelay % 1000);
+							}
+						} catch (InterruptedException e) {
+							// Ignore exception
+						}
+					}
+				}
+			}
             idleDuration.end();
             log.debug("Ending Idle State");
         }
@@ -1374,6 +1394,12 @@ public class RuntimeContext {
 
     public static void onNextScheduleModified() {
     	checkSync(false);
+
+    	// Notify the thread waiting on the idleSyncObject that
+    	// the scheduler has now received a new schedule.
+    	synchronized (idleSyncObject) {
+        	idleSyncObject.notifyAll();
+		}
     }
 
     private static void checkSync(boolean sleep) {
@@ -1410,5 +1436,12 @@ public class RuntimeContext {
     	cpu.pc = pc;
     	log.error(String.format("Code instruction at 0x%08X has been modified, expected 0x%08X, current 0x%08X", pc, opcode, memory.read32(pc)));
     	Emulator.PauseEmuWithStatus(Emulator.EMU_STATUS_MEM_WRITE);
+    }
+
+    public static void debugMemory(int address, int length) {
+    	if (memory instanceof DebuggerMemory) {
+    		DebuggerMemory debuggerMemory = (DebuggerMemory) memory;
+    		debuggerMemory.addRangeReadWriteBreakpoint(address, address + length - 1);
+    	}
     }
 }

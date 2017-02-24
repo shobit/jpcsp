@@ -96,6 +96,7 @@ public class SceKernelErrors {
     public static final int ERROR_NOSPC                                         = 0x8000021C;
     public static final int ERROR_DFUNC                                         = 0x800002FF;
 
+    public final static int ERROR_ERRNO_BASE                                    = 0x80010000;
     public final static int ERROR_ERRNO_OPERATION_NOT_PERMITTED                 = 0x80010001;
     public final static int ERROR_ERRNO_FILE_NOT_FOUND                          = 0x80010002;
     public final static int ERROR_ERRNO_FILE_OPEN_ERROR                         = 0x80010003;
@@ -455,9 +456,13 @@ public class SceKernelErrors {
 
     public final static int ERROR_HTTP_NOT_INIT                                 = 0x80431001;
     public final static int ERROR_HTTP_ALREADY_INIT                             = 0x80431020;
+    public final static int ERROR_HTTP_NOT_FOUND                                = 0x80431025;
+    public final static int ERROR_HTTP_NO_CONTENT_LENGTH                        = 0x80431071;
     public final static int ERROR_HTTP_NO_MEMORY                                = 0x80431077;
     public final static int ERROR_HTTP_SYSTEM_COOKIE_NOT_LOADED                 = 0x80431078;
     public final static int ERROR_HTTP_INVALID_PARAMETER                        = 0x804311FE;
+
+    public final static int ERROR_PARSE_HTTP_NOT_FOUND                          = 0x80432025;
 
     public final static int ERROR_SSL_NOT_INIT                                  = 0x80435001;
     public final static int ERROR_SSL_ALREADY_INIT                              = 0x80435020;
@@ -475,6 +480,7 @@ public class SceKernelErrors {
     public final static int ERROR_WAVE_INVALID_CHANNEL                          = 0x80440010;
     public final static int ERROR_WAVE_INVALID_SAMPLE_COUNT                     = 0x80440011;
 
+    public final static int ERROR_FONT_OUT_OF_MEMORY                            = 0x80460001;
     public final static int ERROR_FONT_INVALID_LIBID                            = 0x80460002;
     public final static int ERROR_FONT_INVALID_PARAMETER                        = 0x80460003;
     public final static int ERROR_FONT_FILE_NOT_FOUND                           = 0x80460005;
@@ -504,6 +510,8 @@ public class SceKernelErrors {
     public final static int ERROR_NPDRM_TIME_SERVICE_NOT_STARTED                = 0x80550915;
     public final static int ERROR_NPDRM_NO_K_LICENSEE_SET                       = 0x80550916;
     public final static int ERROR_NPDRM_NO_FILENAME_MATCH                       = 0x80550917;
+
+    public final static int ERROR_LIB_UPDATE_LATEST_VERSION_INSTALLED           = 0x805F0004;
 
     public final static int ERROR_MPEG_BAD_VERSION                              = 0x80610002;
     public final static int ERROR_MPEG_NO_MEMORY                                = 0x80610022;

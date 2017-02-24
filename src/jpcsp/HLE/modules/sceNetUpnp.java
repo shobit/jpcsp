@@ -18,6 +18,9 @@ package jpcsp.HLE.modules;
 
 import org.apache.log4j.Logger;
 
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
 import jpcsp.HLE.HLEUnimplemented;
@@ -59,6 +62,28 @@ public class sceNetUpnp extends HLEModule {
     public int sceNetUpnpGetNatInfo(TPointer unknown) {
     	// Unknown structure of 16 bytes
     	unknown.clear(16);
+
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x8513C6D1, version = 150)
+    public int sceNetUpnp_8513C6D1(TPointer unknown1, TPointer unknown2, TPointer unknown3) {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xFDA78483, version = 150)
+    public int sceNetUpnp_FDA78483() {
+    	// Has no parameters
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x1038E77A, version = 150)
+    public int sceNetUpnp_1038E77A(@BufferInfo(lengthInfo=LengthInfo.fixedLength, length=48, usage=Usage.out) TPointer unknown) {
+    	unknown.clear(48);
+    	unknown.setValue32(4, 1);
 
     	return 0;
     }

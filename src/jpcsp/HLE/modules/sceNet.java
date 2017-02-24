@@ -16,8 +16,14 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.HLE.modules;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Random;
+
 import jpcsp.Allegrex.CpuState;
-import jpcsp.Allegrex.compiler.nativeCode.AbstractNativeCodeSequence;
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLELogging;
@@ -43,6 +49,16 @@ public class sceNet extends HLEModule {
     public static Logger log = Modules.getLogger("sceNet");
     private INetworkAdapter networkAdapter;
 	protected int netMemSize;
+	private static final int[] look_ctype_table = new int[] {
+		0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x08, 0x08, 0x08, 0x08, 0x08, 0x20, 0x20,
+		0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+		0x18, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+		0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10,
+		0x10, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+		0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x10, 0x10, 0x10, 0x10, 0x10,
+		0x10, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
+		0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x10, 0x10, 0x10, 0x10, 0x20
+	};
 
 	@Override
 	public void start() {
@@ -232,16 +248,8 @@ public class sceNet extends HLEModule {
     }
 
     @HLEFunction(nid = 0xB5CE388A, version = 150)
-    public int sceNetStrncpy(@CanBeNull TPointer destAddr, @CanBeNull TPointer srcAddr, int size) {
-    	int srcLength = AbstractNativeCodeSequence.getStrlen(srcAddr.getAddress());
-		if (srcLength < size) {
-			destAddr.memcpy(srcAddr.getAddress(), srcLength + 1);
-			destAddr.clear(srcLength + 1, size - srcLength - 1);
-		} else {
-			destAddr.memcpy(srcAddr.getAddress(), size);
-		}
-
-		return destAddr.getAddress();
+    public int sceNetStrncpy(@CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextNextParameter, usage=Usage.out) TPointer destAddr, @CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer srcAddr, int size) {
+    	return Modules.SysclibForKernelModule.strncpy(destAddr, srcAddr, size);
     }
 
     @HLEFunction(nid = 0xBCBE14CF, version = 150)
@@ -266,30 +274,15 @@ public class sceNet extends HLEModule {
     	return 0;
     }
 
-    @HLEUnimplemented
     @HLEFunction(nid = 0x750F705D, version = 150)
     public int sceNetLook_ctype_table(int c) {
+    	int ctype = look_ctype_table[c & 0xFF];
+
     	if (log.isDebugEnabled()) {
-    		log.debug(String.format("sceNetLook_ctype_table c='%c'", (char) c));
+    		log.debug(String.format("sceNetLook_ctype_table c='%c' = 0x%02X", (char) c, ctype));
     	}
 
-    	int type = 0;
-    	if (Character.isAlphabetic(c)) {
-    		if (Character.isUpperCase(c)) {
-    			type |= 0x01;
-    		}
-    		if (Character.isLowerCase(c)) {
-    			type |= 0x02;
-    		}
-    	}
-    	if (Character.isDigit(c)) {
-    		type |= 0x04;
-    	}
-    	if (Character.isSpaceChar(c)) {
-    		type |= 0x08;
-    	}
-
-    	return type;
+    	return ctype;
     }
 
     @HLEFunction(nid = 0x5705F6F9, version = 150)
@@ -314,10 +307,22 @@ public class sceNet extends HLEModule {
 
     @HLEFunction(nid = 0x96EF9DA1, version = 150)
     public int sceNetTolower(int c) {
-    	if (log.isDebugEnabled()) {
-    		log.debug(String.format("sceNetTolower c='%c'", (char) c));
+    	int ctype = look_ctype_table[c & 0xFF];
+    	if ((ctype & 0x01) != 0) {
+    		c += 0x20;
     	}
-    	return Character.toLowerCase(c);
+
+    	return c;
+    }
+
+    @HLEFunction(nid = 0xC13C9307, version = 150)
+    public int sceNetToupper(int c) {
+    	int ctype = look_ctype_table[c & 0xFF];
+    	if ((ctype & 0x02) != 0) {
+    		c -= 0x20;
+    	}
+
+    	return c;
     }
 
     @HLEFunction(nid = 0xCF705E46, version = 150)
@@ -326,7 +331,7 @@ public class sceNet extends HLEModule {
     }
 
     @HLEFunction(nid = 0xB9085A96, version = 150)
-    public int sceNetStrncasecmp(@CanBeNull TPointer src1Addr, @CanBeNull TPointer src2Addr, int size) {
+    public int sceNetStrncasecmp(@CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextNextParameter, usage=Usage.in) TPointer src1Addr, @CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer src2Addr, int size) {
     	if (src1Addr.isNull() || src2Addr.isNull()) {
     		if (src1Addr.getAddress() == src2Addr.getAddress()) {
     			return 0;
@@ -359,12 +364,12 @@ public class sceNet extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x2A73ADDC, version = 150)
-    public long sceNetStrtoul(@CanBeNull PspString string, TPointer32 endString, int base) {
-    	return Integer.parseInt(string.getString(), base);
+    public long sceNetStrtoul(@CanBeNull PspString string, @CanBeNull TPointer32 endString, int base) {
+    	return Modules.SysclibForKernelModule.strtoul(string, endString, base);
     }
 
     @HLEFunction(nid = 0xE0A81C7C, version = 150)
-    public int sceNetMemcmp(@CanBeNull TPointer src1Addr, @CanBeNull TPointer src2Addr, int size) {
+    public int sceNetMemcmp(@CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextNextParameter, usage=Usage.in) TPointer src1Addr, @CanBeNull @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer src2Addr, int size) {
     	return Modules.SysclibForKernelModule.memcmp(src1Addr, src2Addr, size);
     }
 
@@ -396,14 +401,84 @@ public class sceNet extends HLEModule {
     }
 
     @HLEUnimplemented
-    @HLEFunction(nid = 0xC13C9307, version = 150)
-    public int sceNet_lib_C13C9307() {
-    	return 0;
+    @HLEFunction(nid = 0x384EFE14, version = 150)
+    public int sceNet_lib_384EFE14(@BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer in1Addr, int in1Size, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer in2Addr, int in2Size, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=20, usage=Usage.out) TPointer outAddr) {
+    	if (in2Size > 64) {
+    		log.warn(String.format("sceNet_lib_384EFE14 not implemented for size=0x%X", in2Size));
+    	}
+
+    	MessageDigest md;
+        try {
+			md = MessageDigest.getInstance("SHA-1");
+		} catch (NoSuchAlgorithmException e) {
+			log.error("sceNet_lib_384EFE14", e);
+			return -1;
+		}
+
+    	byte[] in1 = in1Addr.getArray8(in1Size);
+    	byte[] in2 = in2Addr.getArray8(in2Size);
+
+    	byte[] tmp1 = new byte[64];
+    	byte[] tmp2 = new byte[64];
+    	System.arraycopy(in2, 0, tmp1, 0, Math.min(in2Size, tmp1.length));
+    	System.arraycopy(in2, 0, tmp2, 0, Math.min(in2Size, tmp2.length));
+    	for (int i = 0; i < tmp1.length; i++) {
+    		tmp1[i] = (byte) (tmp1[i] ^ 0x36);
+    		tmp2[i] = (byte) (tmp2[i] ^ 0x5C);
+    	}
+
+		md.update(tmp1);
+		md.update(in1);
+		byte[] tmp3 = md.digest();
+		md.reset();
+		md.update(tmp2);
+		md.update(tmp3);
+		byte[] result = md.digest();
+
+		outAddr.setArray(result, 20);
+
+		return 0;
+    }
+
+    @HLEFunction(nid = 0x4753D878, version = 150)
+    public int sceNetMemmove(@CanBeNull TPointer dstAddr, TPointer srcAddr, int size) {
+    	return Modules.SysclibForKernelModule.memmove(dstAddr, srcAddr, size);
+    }
+
+    @HLEFunction(nid = 0x8687B5AB, version = 150)
+    public int sceNetVsprintf(CpuState cpu, TPointer buffer, String format, TPointer32 parameters) {
+    	Object[] formatParameters = new Object[10]; // Assume max. 10 parameters
+    	IMemoryReader memoryReader = MemoryReader.getMemoryReader(parameters.getAddress(), 4 * formatParameters.length, 4);
+    	for (int i = 0; i < formatParameters.length; i++) {
+    		formatParameters[i] = memoryReader.readNext();
+    	}
+
+    	String formattedString = Modules.SysMemUserForUserModule.hleKernelSprintf(cpu, format, formatParameters);
+		Utilities.writeStringZ(buffer.getMemory(), buffer.getAddress(), formattedString);
+
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("sceNetVsprintf returning '%s'", formattedString));
+		}
+
+		return formattedString.length();
     }
 
     @HLEUnimplemented
-    @HLEFunction(nid = 0x384EFE14, version = 150)
-    public int sceNet_lib_384EFE14() {
+    @HLEFunction(nid = 0x1858883D, version = 150)
+    public int sceNetRand() {
+    	// Has no parameters
+    	return new Random().nextInt();
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xA93A93E9, version = 150)
+    public int _sce_pspnet_callout_stop(@BufferInfo(lengthInfo=LengthInfo.fixedLength, length=32, usage=Usage.inout) TPointer unknown) {
     	return 0;
     }
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0xA8B6205A, version = 150)
+	public int sceNet_lib_A8B6205A(TPointer unknown1, int unknown2, TPointer unknown3, int unknown4) {
+		return 0;
+	}
 }

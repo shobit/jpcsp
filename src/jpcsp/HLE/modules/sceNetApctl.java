@@ -36,6 +36,7 @@ import org.apache.log4j.Logger;
 import jpcsp.HLE.Modules;
 import jpcsp.HLE.kernel.managers.SceUidManager;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
+import jpcsp.HLE.kernel.types.pspNetMacAddress;
 import jpcsp.hardware.Wlan;
 import jpcsp.settings.Settings;
 import jpcsp.Emulator;
@@ -83,6 +84,7 @@ public class sceNetApctl extends HLEModule {
 	public static final int PSP_NET_APCTL_INFO_8021_EAP_TYPE = 16;
 	public static final int PSP_NET_APCTL_INFO_START_BROWSER = 17;
 	public static final int PSP_NET_APCTL_INFO_WIFISP        = 18;
+	public static final int PSP_NET_APCTL_INFO_UNKNOWN19     = 19;
 	private static final String[] apctlInfoNames = new String[] {
 		"PROFILE_NAME",
 		"BSSID",
@@ -105,9 +107,17 @@ public class sceNetApctl extends HLEModule {
 		"WIFISP"
 	};
 
-	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_NONE = 0;
-	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_WEP  = 1;
-	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_WPA  = 2;
+	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_NONE        = 0;
+	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_WEP         = 1;
+	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_WPA_TKIP    = 2;
+	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_UNSUPPORTED = 3;
+	public static final int PSP_NET_APCTL_INFO_SECURITY_TYPE_WPA_AES     = 4;
+
+	public static final int PSP_NET_APCTL_DESC_IBSS = 0;
+	public static final int PSP_NET_APCTL_DESC_SSID_NAME = 1;
+	public static final int PSP_NET_APCTL_DESC_SSID_NAME_LENGTH = 2;
+	public static final int PSP_NET_APCTL_DESC_SIGNAL_STRENGTH = 4;
+	public static final int PSP_NET_APCTL_DESC_SECURITY = 5;
 
 	public static final int SSID_NAME_LENGTH = 32;
 
@@ -332,7 +342,7 @@ public class sceNetApctl extends HLEModule {
 
 	public void hleNetApctlThread(Processor processor) {
 		if (log.isDebugEnabled()) {
-			log.debug("hleNetApctlThread");
+			log.debug(String.format("hleNetApctlThread state=%d", state));
 		}
 
 		if (sceNetApctlThreadTerminate) {
@@ -370,10 +380,18 @@ public class sceNetApctl extends HLEModule {
 		    		}
 			}
 
-	    	if (stateTransitionCompleted) {
+			if (stateTransitionCompleted) {
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("hleNetApctlThread sleeping with state=%d", state));
+				}
+
 	    		// Wait for a new state reset... wakeup is done by triggerNetApctlThread()
 	    		Modules.ThreadManForUserModule.hleKernelSleepThread(false);
 	    	} else {
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("hleNetApctlThread waiting for %d us with state=%d", stateTransitionDelay, state));
+				}
+
 	    		// Wait a little bit before moving to the next state...
 	    		Modules.ThreadManForUserModule.hleKernelDelayThread(stateTransitionDelay, false);
 	    	}
@@ -527,6 +545,11 @@ public class sceNetApctl extends HLEModule {
 				pInfo.setValue32(false); // Do not start the browser
 				break;
 			}
+			case PSP_NET_APCTL_INFO_UNKNOWN19: {
+				// The PSP is returning value 1 (tested with JpcspTrace)
+				pInfo.setValue32(1);
+				break;
+			}
 			default: {
 				log.warn(String.format("sceNetApctlGetInfo unimplemented code=0x%X(%s)", code, getApctlInfoName(code)));
 				return -1;
@@ -677,23 +700,27 @@ public class sceNetApctl extends HLEModule {
 	@HLEFunction(nid = 0x04776994, version = 150)
 	public int sceNetApctlGetBSSDescEntryUser(int entryId, int infoId, TPointer result) {
 		switch (infoId) {
-			case 0: // IBSS, 6 bytes
+			case PSP_NET_APCTL_DESC_IBSS: // IBSS, 6 bytes
 				String ibss = Modules.sceNetAdhocctlModule.hleNetAdhocctlGetIBSS();
 				result.setStringNZ(IBSS_NAME_LENGTH, ibss);
 				break;
-			case 1:
+			case PSP_NET_APCTL_DESC_SSID_NAME:
 				// Return 32 bytes
 				String ssid = getSSID();
 				result.setStringNZ(SSID_NAME_LENGTH, ssid);
 				break;
-			case 2:
+			case PSP_NET_APCTL_DESC_SSID_NAME_LENGTH:
 				// Return one 32-bit value
 				int length = Math.min(getSSID().length(), SSID_NAME_LENGTH);
 				result.setValue32(length);
 				break;
-			case 4:
+			case PSP_NET_APCTL_DESC_SIGNAL_STRENGTH:
 				// Return 1 byte
 				result.setValue8((byte) Wlan.getSignalStrenth());
+				break;
+			case PSP_NET_APCTL_DESC_SECURITY:
+				// Return one 32-bit value
+				result.setValue32(PSP_NET_APCTL_INFO_SECURITY_TYPE_WPA_AES);
 				break;
 			default:
 				log.warn(String.format("sceNetApctlGetBSSDescEntryUser unknown id %d", infoId));
@@ -733,5 +760,32 @@ public class sceNetApctl extends HLEModule {
 	@HLEFunction(nid = 0x69745F0A, version = 150)
 	public int sceNetApctl_lib2_69745F0A(int handlerId) {
 		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x4C19731F, version = 150)
+	public int sceNetApctl_lib2_4C19731F(int code, TPointer pInfo) {
+		return sceNetApctlGetInfo(code, pInfo);
+	}
+
+	@HLEFunction(nid = 0xB3CF6849, version = 150)
+	public int sceNetApctlScan() {
+		return sceNetApctlScanUser();
+	}
+
+	@HLEFunction(nid = 0x0C7FFA5C, version = 150)
+	public int sceNetApctlGetBSSDescIDList(TPointer32 sizeAddr, @CanBeNull TPointer buf) {
+		return sceNetApctlGetBSSDescIDListUser(sizeAddr, buf);
+	}
+
+	@HLEFunction(nid = 0x96BEB231, version = 150)
+	public int sceNetApctlGetBSSDescEntry(int entryId, int infoId, TPointer result) {
+		return sceNetApctlGetBSSDescEntryUser(entryId, infoId, result);
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0xC20A144C, version = 150)
+	public int sceNetApctl_lib2_C20A144C(int connIndex, pspNetMacAddress ps3MacAddress) {
+		return sceNetApctlConnect(connIndex);
 	}
 }

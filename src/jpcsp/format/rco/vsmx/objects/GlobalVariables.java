@@ -21,6 +21,7 @@ import org.apache.log4j.Logger;
 import jpcsp.format.rco.vsmx.VSMX;
 import jpcsp.format.rco.vsmx.interpreter.VSMXArray;
 import jpcsp.format.rco.vsmx.interpreter.VSMXBaseObject;
+import jpcsp.format.rco.vsmx.interpreter.VSMXBoolean;
 import jpcsp.format.rco.vsmx.interpreter.VSMXInterpreter;
 import jpcsp.format.rco.vsmx.interpreter.VSMXNativeObject;
 import jpcsp.format.rco.vsmx.interpreter.VSMXNumber;
@@ -117,6 +118,32 @@ public class GlobalVariables extends BaseNativeObject {
 	public VSMXBaseObject parseInt(VSMXBaseObject object, VSMXBaseObject value) {
 		if (log.isDebugEnabled()) {
 			log.debug(String.format("parseInt: %s", value));
+		}
+
+		return new VSMXNumber(object.getInterpreter(), value.getIntValue());
+	}
+
+	public VSMXBaseObject isNaN(VSMXBaseObject object, VSMXBaseObject value) {
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("isNaN: %s", value));
+		}
+
+		boolean isNaN = Float.isNaN(value.getFloatValue());
+
+		return VSMXBoolean.getValue(isNaN);
+	}
+
+	public VSMXBaseObject Float(VSMXBaseObject object, VSMXBaseObject value) {
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("Float: %s", value));
+		}
+
+		return new VSMXNumber(object.getInterpreter(), value.getFloatValue());
+	}
+
+	public VSMXBaseObject Int(VSMXBaseObject object, VSMXBaseObject value) {
+		if (log.isDebugEnabled()) {
+			log.debug(String.format("Int: %s", value));
 		}
 
 		return new VSMXNumber(object.getInterpreter(), value.getIntValue());

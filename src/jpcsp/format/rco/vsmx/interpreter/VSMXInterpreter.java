@@ -103,6 +103,7 @@ public class VSMXInterpreter {
 		VSMXBaseObject arguments[];
 		float f1, f2, f;
 		String s1, s2, s;
+		int i1, i2, i;
 		boolean b;
 		switch (code.getOpcode()) {
 			case VSMXCode.VID_NOTHING:
@@ -282,25 +283,45 @@ public class VSMXInterpreter {
 				stack.push(new VSMXString(this, typeOf));
 				break;
 			case VSMXCode.VID_OPERATOR_B_AND:
-				log.warn(String.format("Line#%d unimplemented %s", pc - 1, code));
+				i1 = stack.pop().getIntValue();
+				i2 = stack.pop().getIntValue();
+				i = i1 & i2;
+				stack.push(new VSMXNumber(this, i));
 				break;
 			case VSMXCode.VID_OPERATOR_B_XOR:
-				log.warn(String.format("Line#%d unimplemented %s", pc - 1, code));
+				i1 = stack.pop().getIntValue();
+				i2 = stack.pop().getIntValue();
+				i = i1 ^ i2;
+				stack.push(new VSMXNumber(this, i));
 				break;
 			case VSMXCode.VID_OPERATOR_B_OR:
-				log.warn(String.format("Line#%d unimplemented %s", pc - 1, code));
+				i1 = stack.pop().getIntValue();
+				i2 = stack.pop().getIntValue();
+				i = i1 | i2;
+				stack.push(new VSMXNumber(this, i));
 				break;
 			case VSMXCode.VID_OPERATOR_B_NOT:
-				log.warn(String.format("Line#%d unimplemented %s", pc - 1, code));
+				i1 = stack.pop().getIntValue();
+				i = ~i1;
+				stack.push(new VSMXNumber(this, i));
 				break;
 			case VSMXCode.VID_OPERATOR_LSHIFT:
-				log.warn(String.format("Line#%d unimplemented %s", pc - 1, code));
+				i1 = stack.pop().getIntValue();
+				i2 = stack.pop().getIntValue();
+				i = i2 << i1;
+				stack.push(new VSMXNumber(this, i));
 				break;
 			case VSMXCode.VID_OPERATOR_RSHIFT:
-				log.warn(String.format("Line#%d unimplemented %s", pc - 1, code));
+				i1 = stack.pop().getIntValue();
+				i2 = stack.pop().getIntValue();
+				i = i2 >> i1;
+				stack.push(new VSMXNumber(this, i));
 				break;
 			case VSMXCode.VID_OPERATOR_URSHIFT:
-				log.warn(String.format("Line#%d unimplemented %s", pc - 1, code));
+				i1 = stack.pop().getIntValue();
+				i2 = stack.pop().getIntValue();
+				i = i2 >>> i1;
+				stack.push(new VSMXNumber(this, i));
 				break;
 			case VSMXCode.VID_STACK_COPY:
 				o1 = stack.peek();
@@ -467,7 +488,7 @@ public class VSMXInterpreter {
 				break;
 			case VSMXCode.VID_CALL_FUNC:
 				arguments = popValues(code.value);
-				o = stack.pop().getValue();
+				o = stack.pop().getValueWithArguments(code.value);
 				if (o instanceof VSMXFunction) {
 					VSMXFunction function = (VSMXFunction) o;
 
@@ -479,7 +500,7 @@ public class VSMXInterpreter {
 				break;
 			case VSMXCode.VID_CALL_METHOD:
 				arguments = popValues(code.value);
-				o = stack.pop().getValue();
+				o = stack.pop().getValueWithArguments(code.value);
 				if (o instanceof VSMXMethod) {
 					VSMXMethod method = (VSMXMethod) o;
 					VSMXFunction function = method.getFunction(code.value);
