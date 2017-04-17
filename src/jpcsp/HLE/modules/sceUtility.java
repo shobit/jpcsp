@@ -19,6 +19,7 @@ package jpcsp.HLE.modules;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static jpcsp.Allegrex.Common._s0;
+import static jpcsp.Allegrex.Common._s1;
 import static jpcsp.HLE.kernel.types.SceUtilityScreenshotParams.PSP_UTILITY_SCREENSHOT_FORMAT_JPEG;
 import static jpcsp.HLE.kernel.types.SceUtilityScreenshotParams.PSP_UTILITY_SCREENSHOT_FORMAT_PNG;
 import static jpcsp.HLE.kernel.types.SceUtilityScreenshotParams.PSP_UTILITY_SCREENSHOT_NAMERULE_AUTONUM;
@@ -40,6 +41,10 @@ import static jpcsp.graphics.GeCommands.VTYPE_TRANSFORM_PIPELINE_RAW_COORD;
 import static jpcsp.graphics.RE.IRenderingEngine.GU_TEXTURE_2D;
 import static jpcsp.graphics.VideoEngine.alignBufferWidth;
 import static jpcsp.memory.ImageReader.colorARGBtoABGR;
+import jpcsp.GUI.SettingsGUI;
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLELogging;
@@ -291,6 +296,7 @@ public class sceUtility extends HLEModule {
     protected UtilityDialogState startedDialogState;
     private static final String dummyNetParamName = "NetConf #%d";
     private final static int utilityThreadActionRegister = _s0; // $s0 is preserved across calls
+    private final static int utilityThreadDelayRegister = _s1; // $s1 is preserved across calls
     private final static int UTILITY_THREAD_ACTION_SHUTDOWN_START = 0;
     private final static int UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE = 1;
     protected HashMap<Integer, SceModule> loadedAvModules = new HashMap<Integer, SceModule>();
@@ -518,8 +524,9 @@ public class sceUtility extends HLEModule {
 
     public void hleUtilityThread(Processor processor) {
     	int action = processor.cpu.getRegister(utilityThreadActionRegister);
+    	int delay = processor.cpu.getRegister(utilityThreadDelayRegister);
     	if (log.isDebugEnabled()) {
-    		log.debug(String.format("hleUtilityThread action=%d", action));
+    		log.debug(String.format("hleUtilityThread action=%d, delay=%d", action, delay));
     	}
 
     	switch (action) {
@@ -527,7 +534,7 @@ public class sceUtility extends HLEModule {
     			// Starting the shutdown action.
     			// Wait a short time before completing the shutdown.
     			processor.cpu.setRegister(utilityThreadActionRegister, UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE);
-    			Modules.ThreadManForUserModule.hleKernelDelayThread(50000, false);
+    			Modules.ThreadManForUserModule.hleKernelDelayThread(delay, false);
     			break;
 	    	case UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE:
 	    		// Completing the shutdown action.
@@ -766,6 +773,7 @@ public class sceUtility extends HLEModule {
             SceKernelThreadInfo shutdownThread = Modules.ThreadManForUserModule.hleKernelCreateThread("SceUtilityShutdown", ThreadManForUser.UTILITY_LOOP_ADDRESS, params.base.accessThread, 0x800, 0, 0, SysMemUserForUser.USER_PARTITION_ID);
             Modules.ThreadManForUserModule.hleKernelStartThread(shutdownThread, 0, 0, shutdownThread.gpReg_addr);
             shutdownThread.cpuContext.setRegister(utilityThreadActionRegister, UTILITY_THREAD_ACTION_SHUTDOWN_START);
+            shutdownThread.cpuContext.setRegister(utilityThreadDelayRegister, getShutdownDelay());
 
             return 0;
         }
@@ -900,6 +908,16 @@ public class sceUtility extends HLEModule {
 
         public void setYesSelected(boolean isYesSelected) {
             this.isYesSelected = isYesSelected;
+        }
+
+        protected int getShutdownDelay() {
+        	if (hasDialog()) {
+        		// The shutdown is taking some time to complete
+        		// when a dialog has been shown to the user.
+            	return 50000;
+        	}
+
+        	return 0;
         }
     }
 
@@ -2251,7 +2269,7 @@ public class sceUtility extends HLEModule {
             npSigninParams.signinStatus = SceUtilityNpSigninParams.NP_SIGNING_STATUS_OK;
             npSigninParams.write(mem);
 
-            int sceNp_E24DA399 = NIDMapper.getInstance().overwrittenNidToAddress(0xE24DA399);
+            int sceNp_E24DA399 = NIDMapper.getInstance().getAddressByName("sceNp_E24DA399");
             if (sceNp_E24DA399 != 0) {
             	int address = mem.read16(sceNp_E24DA399 + 0) << 16;
             	address += (short) mem.read16(sceNp_E24DA399 + 8);
@@ -2263,7 +2281,7 @@ public class sceUtility extends HLEModule {
             	}
             }
 
-            int sceNp_C48F2847 = NIDMapper.getInstance().overwrittenNidToAddress(0xC48F2847);
+            int sceNp_C48F2847 = NIDMapper.getInstance().getAddressByName("sceNp_C48F2847");
             if (sceNp_C48F2847 != 0) {
             	int address = mem.read16(sceNp_C48F2847 + 0x74) << 16;
             	address += (short) mem.read16(sceNp_C48F2847 + 0x78);
@@ -2275,7 +2293,7 @@ public class sceUtility extends HLEModule {
             	}
             }
 
-            int sceNpService_7EF4312E = NIDMapper.getInstance().overwrittenNidToAddress(0x7EF4312E);
+            int sceNpService_7EF4312E = NIDMapper.getInstance().getAddressByName("sceNpService_7EF4312E");
             if (sceNpService_7EF4312E != 0) {
             	int subAddress = (mem.read32(sceNpService_7EF4312E + 0x78) & 0x3FFFFFF) << 2;
             	int address = mem.read16(subAddress + 0x14) << 16;
@@ -2292,7 +2310,7 @@ public class sceUtility extends HLEModule {
             	}
             }
 
-            int sceNp_02CA8CAA = NIDMapper.getInstance().overwrittenNidToAddress(0x02CA8CAA);
+            int sceNp_02CA8CAA = NIDMapper.getInstance().getAddressByName("sceNp_02CA8CAA");
             if (sceNp_02CA8CAA != 0) {
             	int address = mem.read16(sceNp_02CA8CAA + 0x8C) << 16;
             	address += (short) mem.read16(sceNp_02CA8CAA + 0x90);
@@ -2623,7 +2641,8 @@ public class sceUtility extends HLEModule {
         protected void createDialog(final UtilityDialogState utilityDialogState) {
             this.utilityDialogState = utilityDialogState;
             if (log.isDebugEnabled()) {
-                log.debug(String.format("Free memory total=0x%X, max=0x%X", Modules.SysMemUserForUserModule.totalFreeMemSize(), Modules.SysMemUserForUserModule.maxFreeMemSize()));
+            	int partitionId = SysMemUserForUser.USER_PARTITION_ID;
+                log.debug(String.format("Free memory total=0x%X, max=0x%X", Modules.SysMemUserForUserModule.totalFreeMemSize(partitionId), Modules.SysMemUserForUserModule.maxFreeMemSize(partitionId)));
             }
 
             startDialogMillis = Emulator.getClock().milliTime();
@@ -3924,7 +3943,27 @@ public class sceUtility extends HLEModule {
     }
 
     public static int getSystemParamAdhocChannel() {
-        return Settings.getInstance().readInt(SYSTEMPARAM_SETTINGS_OPTION_ADHOC_CHANNEL, 0);
+    	int indexedValue = Settings.getInstance().readInt(SYSTEMPARAM_SETTINGS_OPTION_ADHOC_CHANNEL, 0);
+    	String[] guiValues = SettingsGUI.getSysparamAdhocChannels();
+
+    	int channel = 0;
+    	// Invalid value?
+    	if (guiValues == null || indexedValue < 0 || indexedValue >= guiValues.length) {
+    		return channel;
+    	}
+
+    	// Auto value?
+    	if (indexedValue == 0) {
+    		return channel;
+    	}
+
+    	try {
+    		channel = Integer.parseInt(guiValues[indexedValue]);
+    	} catch (NumberFormatException e) {
+    		log.error(String.format("Invalid channel settings value %d from %s", indexedValue, guiValues));
+    	}
+
+    	return channel;
     }
 
     public static int getSystemParamWlanPowersave() {
@@ -4012,7 +4051,7 @@ public class sceUtility extends HLEModule {
         PSP_MODULE_AV_VAUDIO(0x0305),
         PSP_MODULE_AV_AAC(0x0306),
         PSP_MODULE_AV_G729(0x0307),
-        PSP_MODULE_AV_MP4(0x0308),
+        PSP_MODULE_AV_MP4(0x0308, new String[] { "flash0:/kd/libmp4.prx", "flash0:/kd/mp4msv.prx" } ),
         PSP_MODULE_NP_COMMON(0x0400, new String[] { "flash0:/kd/np.prx", "flash0:/kd/np_core.prx", "flash0:/kd/np_auth.prx" }),
         PSP_MODULE_NP_SERVICE(0x0401, "flash0:/kd/np_service.prx"),
         PSP_MODULE_NP_MATCHING2(0x0402, "flash0:/kd/np_matching2.prx"),
@@ -4229,7 +4268,7 @@ public class sceUtility extends HLEModule {
     }
 
     @HLEFunction(nid = 0x50C4CD57, version = 150)
-    public int sceUtilitySavedataInitStart(TPointer paramsAddr) {
+    public int sceUtilitySavedataInitStart(@BufferInfo(lengthInfo=LengthInfo.variableLength, usage=Usage.inout) TPointer paramsAddr) {
         return savedataState.executeInitStart(paramsAddr);
     }
 
@@ -4269,7 +4308,7 @@ public class sceUtility extends HLEModule {
     }
 
     @HLEFunction(nid = 0x2AD8E239, version = 150)
-    public int sceUtilityMsgDialogInitStart(TPointer paramsAddr) {
+    public int sceUtilityMsgDialogInitStart(@BufferInfo(lengthInfo=LengthInfo.variableLength, usage=Usage.inout) TPointer paramsAddr) {
         return msgDialogState.executeInitStart(paramsAddr);
     }
 
@@ -4289,7 +4328,7 @@ public class sceUtility extends HLEModule {
     }
 
     @HLEFunction(nid = 0xF6269B82, version = 150)
-    public int sceUtilityOskInitStart(TPointer paramsAddr) {
+    public int sceUtilityOskInitStart(@BufferInfo(lengthInfo=LengthInfo.variableLength, usage=Usage.inout) TPointer paramsAddr) {
         return oskState.executeInitStart(paramsAddr);
     }
 
@@ -4487,7 +4526,7 @@ public class sceUtility extends HLEModule {
     }
 
     @HLEFunction(nid = 0xA5DA2406, version = 150)
-    public int sceUtilityGetSystemParamInt(int id, TPointer32 valueAddr) {
+    public int sceUtilityGetSystemParamInt(int id, @BufferInfo(usage=Usage.out) TPointer32 valueAddr) {
         switch (id) {
             case PSP_SYSTEMPARAM_ID_INT_ADHOC_CHANNEL:
                 valueAddr.setValue(getSystemParamAdhocChannel());
@@ -4965,7 +5004,7 @@ public class sceUtility extends HLEModule {
             }
         }
 
-        int result = Modules.ModuleMgrForUserModule.hleKernelLoadModule(path, 0, 0, 0, 0, lmOption, false, false);
+        int result = Modules.ModuleMgrForUserModule.hleKernelLoadModule(path, 0, 0, 0, 0, lmOption, false, false, true, 0);
 
 		return result;
 	}

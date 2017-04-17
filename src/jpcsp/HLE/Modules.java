@@ -144,6 +144,12 @@ public class Modules {
     public static sceMeBoot sceMeBootModule = new sceMeBoot();
     public static sceMeVideo sceMeVideoModule = new sceMeVideo();
     public static sceMeAudio sceMeAudioModule = new sceMeAudio();
+    public static InitForKernel InitForKernelModule = new InitForKernel();
+    public static sceMemab sceMemabModule = new sceMemab();
+    public static DmacManForKernel DmacManForKernelModule = new DmacManForKernel();
+    public static sceSyscon sceSysconModule = new sceSyscon();
+    public static sceLed sceLedModule = new sceLed();
+    public static sceSysreg sceSysregModule = new sceSysreg();
 
     public static Logger log = Logger.getLogger("hle");
 

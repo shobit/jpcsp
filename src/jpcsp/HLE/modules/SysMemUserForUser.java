@@ -19,6 +19,8 @@ package jpcsp.HLE.modules;
 
 import static jpcsp.Allegrex.Common._a1;
 import static jpcsp.Allegrex.Common._t3;
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
@@ -80,7 +82,7 @@ public class SysMemUserForUser extends HLEModule {
 
 	protected boolean started = false;
     private int compiledSdkVersion;
-    protected int compilerVersion;
+    private int compilerVersion;
 
 	@Override
 	public void load() {
@@ -97,6 +99,7 @@ public class SysMemUserForUser extends HLEModule {
 		}
 
 		compiledSdkVersion = 0;
+		compilerVersion = 0;
 
 		super.start();
 	}
@@ -158,8 +161,8 @@ public class SysMemUserForUser extends HLEModule {
         public final int partitionid;
         public final String name;
         public final int type;
-        public final int size;
-        public final int allocatedSize;
+        public int size;
+        public int allocatedSize;
         public final int addr;
 
         public SysMemInfo(int partitionid, String name, int type, int size, int allocatedSize, int addr) {
@@ -176,7 +179,7 @@ public class SysMemUserForUser extends HLEModule {
 
         @Override
         public String toString() {
-            return String.format("SysMemInfo[addr=0x%08X-0x%08X, uid=%x, partition=%d, name='%s', type=%s, size=0x%X (allocated=0x%X)]", addr, addr + allocatedSize, uid, partitionid, name, getTypeName(type), size, allocatedSize);
+            return String.format("SysMemInfo[addr=0x%08X-0x%08X, uid=0x%X, partition=%d, name='%s', type=%s, size=0x%X (allocated=0x%X)]", addr, addr + allocatedSize, uid, partitionid, name, getTypeName(type), size, allocatedSize);
         }
 
         public void free() {
@@ -220,6 +223,10 @@ public class SysMemUserForUser extends HLEModule {
         return typeName;
     }
 
+    private boolean isValidPartitionId(int partitionid) {
+    	return partitionid >= 0 && partitionid < freeMemoryChunks.length && freeMemoryChunks[partitionid] != null;    	
+    }
+
     // Allocates to 256-byte alignment
     public SysMemInfo malloc(int partitionid, String name, int type, int size, int addr) {
     	if (freeMemoryChunks == null) {
@@ -229,7 +236,7 @@ public class SysMemUserForUser extends HLEModule {
     	int allocatedAddress = 0;
         int allocatedSize = 0;
 
-        if (partitionid >= 0 && partitionid < freeMemoryChunks.length && freeMemoryChunks[partitionid] != null) {
+        if (isValidPartitionId(partitionid)) {
         	MemoryChunkList freeMemoryChunk = freeMemoryChunks[partitionid];
         	int alignment = defaultSizeAlignment - 1;
 
@@ -262,7 +269,7 @@ public class SysMemUserForUser extends HLEModule {
 
         SysMemInfo sysMemInfo;
 		if (allocatedAddress == 0) {
-            log.warn(String.format("malloc cannot allocate partition=%d, name='%s', type=%s, size=0x%X, addr=0x%08X, maxFreeMem=0x%X, totalFreeMem=0x%X", partitionid, name, getTypeName(type), size, addr, maxFreeMemSize(), totalFreeMemSize()));
+            log.warn(String.format("malloc cannot allocate partition=%d, name='%s', type=%s, size=0x%X, addr=0x%08X, maxFreeMem=0x%X, totalFreeMem=0x%X", partitionid, name, getTypeName(type), size, addr, maxFreeMemSize(partitionid), totalFreeMemSize(partitionid)));
 			if (log.isTraceEnabled()) {
 				log.trace("Free list: " + getDebugFreeMem());
 				log.trace("Allocated blocks:\n" + getDebugAllocatedMem() + "\n");
@@ -320,20 +327,24 @@ public class SysMemUserForUser extends HLEModule {
     	}
     }
 
-    public int maxFreeMemSize() {
+    public int maxFreeMemSize(int partitionid) {
     	int maxFreeMemSize = 0;
-    	for (MemoryChunk memoryChunk = freeMemoryChunks[USER_PARTITION_ID].getLowMemoryChunk(); memoryChunk != null; memoryChunk = memoryChunk.next) {
-    		if (memoryChunk.size > maxFreeMemSize) {
-    			maxFreeMemSize = memoryChunk.size;
-    		}
+    	if (isValidPartitionId(partitionid)) {
+	    	for (MemoryChunk memoryChunk = freeMemoryChunks[partitionid].getLowMemoryChunk(); memoryChunk != null; memoryChunk = memoryChunk.next) {
+	    		if (memoryChunk.size > maxFreeMemSize) {
+	    			maxFreeMemSize = memoryChunk.size;
+	    		}
+	    	}
     	}
 		return maxFreeMemSize;
     }
 
-    public int totalFreeMemSize() {
+    public int totalFreeMemSize(int partitionid) {
         int totalFreeMemSize = 0;
-    	for (MemoryChunk memoryChunk = freeMemoryChunks[USER_PARTITION_ID].getLowMemoryChunk(); memoryChunk != null; memoryChunk = memoryChunk.next) {
-    		totalFreeMemSize += memoryChunk.size;
+    	if (isValidPartitionId(partitionid)) {
+	    	for (MemoryChunk memoryChunk = freeMemoryChunks[partitionid].getLowMemoryChunk(); memoryChunk != null; memoryChunk = memoryChunk.next) {
+	    		totalFreeMemSize += memoryChunk.size;
+	    	}
     	}
 
     	return totalFreeMemSize;
@@ -341,6 +352,21 @@ public class SysMemUserForUser extends HLEModule {
 
     public SysMemInfo getSysMemInfo(int uid) {
     	return blockList.get(uid);
+    }
+
+    public SysMemInfo separateMemoryBlock(SysMemInfo info, int size) {
+    	int newAddr = info.addr + size;
+    	int newSize = info.size - size;
+    	int newAllocatedSize = info.allocatedSize - size;
+
+    	// Create a new memory block
+    	SysMemInfo newSysMemInfo = new SysMemInfo(info.partitionid, info.name, info.type, newSize, newAllocatedSize, newAddr);
+
+    	// Resize the previous memory block
+    	info.size -= newSize;
+    	info.allocatedSize -= newAllocatedSize;
+
+    	return newSysMemInfo;
     }
 
     /** @param firmwareVersion : in this format: ABB, where A = major and B = minor, for example 271 */
@@ -478,9 +504,13 @@ public class SysMemUserForUser extends HLEModule {
 		compiledSdkVersion = sdkVersion;
 	}
 
+	public int hleKernelGetCompilerVersion() {
+		return compilerVersion;
+	}
+
     @HLEFunction(nid = 0xA291F107, version = 150)
     public int sceKernelMaxFreeMemSize() {
-		int maxFreeMemSize = maxFreeMemSize();
+		int maxFreeMemSize = maxFreeMemSize(USER_PARTITION_ID);
 
         // Some games expect size to be rounded down in 16 bytes block
         maxFreeMemSize &= ~15;
@@ -494,7 +524,7 @@ public class SysMemUserForUser extends HLEModule {
 
 	@HLEFunction(nid = 0xF919F628, version = 150)
 	public int sceKernelTotalFreeMemSize() {
-		int totalFreeMemSize = totalFreeMemSize();
+		int totalFreeMemSize = totalFreeMemSize(USER_PARTITION_ID);
     	if (log.isDebugEnabled()) {
     		log.debug(String.format("sceKernelTotalFreeMemSize returning %d(hex=0x%1$X)", totalFreeMemSize));
     	}
@@ -598,9 +628,8 @@ public class SysMemUserForUser extends HLEModule {
 		return 0;
 	}
 
-	@HLEUnimplemented
 	@HLEFunction(nid = 0x2A3E5280, version = 280)
-	public int sceKernelQueryMemoryInfo(int address, @CanBeNull TPointer32 partitionId, @CanBeNull TPointer32 memoryBlockId) {
+	public int sceKernelQueryMemoryInfo(int address, @CanBeNull @BufferInfo(usage=Usage.out) TPointer32 partitionId, @CanBeNull @BufferInfo(usage=Usage.out) TPointer32 memoryBlockId) {
 		int result = SceKernelErrors.ERROR_KERNEL_ILLEGAL_ADDR;
 
 		for (Integer key : blockList.keySet()) {
@@ -738,5 +767,10 @@ public class SysMemUserForUser extends HLEModule {
         hleSetCompiledSdkVersion(sdkVersion);
 
         return 0;
+	}
+
+	@HLEFunction(nid = 0xC886B169, version = 150)
+	public int sceKernelDevkitVersion_660() {
+		return sceKernelDevkitVersion();
 	}
 }

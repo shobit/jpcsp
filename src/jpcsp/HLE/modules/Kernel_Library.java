@@ -108,7 +108,7 @@ public class Kernel_Library extends HLEModule {
         return Interrupts.isInterruptsEnabled();
     }
 
-	@HLEFunction(nid = 0x15B6446B, version = 380, checkInsideInterrupt = true)
+	@HLEFunction(nid = 0x15B6446B, version = 150, checkInsideInterrupt = true)
 	public int sceKernelUnlockLwMutex(TPointer workAreaAddr, int count) {
 		return Managers.lwmutex.sceKernelUnlockLwMutex(workAreaAddr, count);
 	}
@@ -118,7 +118,7 @@ public class Kernel_Library extends HLEModule {
 		return Managers.lwmutex.sceKernelLockLwMutexCB(workAreaAddr, count, timeoutAddr);
 	}
 
-	@HLEFunction(nid = 0xBEA46419, version = 380, checkInsideInterrupt = true)
+	@HLEFunction(nid = 0xBEA46419, version = 150, checkInsideInterrupt = true)
 	public int sceKernelLockLwMutex(TPointer workAreaAddr, int count, @CanBeNull TPointer32 timeoutAddr) {
 		return Managers.lwmutex.sceKernelLockLwMutex(workAreaAddr, count, timeoutAddr);
 	}
@@ -139,7 +139,7 @@ public class Kernel_Library extends HLEModule {
 	}
 
     @HLELogging(level="trace")
-    @HLEFunction(nid = 0x1839852A, version = 380)
+    @HLEFunction(nid = 0x1839852A, version = 150)
     public int sceKernelMemcpy(@BufferInfo(lengthInfo=LengthInfo.nextNextParameter, usage=Usage.out) TPointer dst, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer src, int length) {
     	if (dst.getAddress() != src.getAddress()) {
     		dst.getMemory().memcpyWithVideoCheck(dst.getAddress(), src.getAddress(), length);

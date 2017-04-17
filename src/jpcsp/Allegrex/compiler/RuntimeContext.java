@@ -32,6 +32,7 @@ import jpcsp.Memory;
 import jpcsp.MemoryMap;
 import jpcsp.Processor;
 import jpcsp.State;
+import jpcsp.Allegrex.Common;
 import jpcsp.Allegrex.CpuState;
 import jpcsp.Allegrex.Decoder;
 import jpcsp.Allegrex.Instructions;
@@ -74,6 +75,7 @@ public class RuntimeContext {
 	public  static final boolean debugCodeBlockCalls = false;
 	public  static final String debugCodeBlockStart = "debugCodeBlockStart";
 	public  static final String debugCodeBlockEnd = "debugCodeBlockEnd";
+	private static final Map<Integer, Integer> debugCodeBlocks = new HashMap<Integer, Integer>();
 	public  static final boolean debugCodeInstruction = false;
 	public  static final String debugCodeInstructionName = "debugCodeInstruction";
 	public  static final boolean debugMemoryRead = false;
@@ -116,6 +118,7 @@ public class RuntimeContext {
 	private static RuntimeThread syscallRuntimeThread;
 	private static sceDisplay sceDisplayModule;
 	private static final Object idleSyncObject = new Object();
+	public static int firmwareVersion;
 
 	private static class CompilerEnabledSettingsListerner extends AbstractBoolSettingsListener {
 		@Override
@@ -275,13 +278,32 @@ public class RuntimeContext {
         			comment = syscallDisasm.substring(19);
         		}
     		}
-    		log.debug(String.format("Starting CodeBlock 0x%08X%s, $ra=0x%08X, $sp=0x%08X", address, comment, cpu._ra, cpu._sp));
+
+    		String parameters = "";
+    		Integer numberOfParameters = debugCodeBlocks.get(address);
+    		if (numberOfParameters != null) {
+    			StringBuilder s = new StringBuilder();
+    			int maxRegisterParameters = Math.min(numberOfParameters.intValue(), 8);
+    			for (int i = 0; i < maxRegisterParameters; i++) {
+    				int register = Common._a0 + i;
+    				int parameterValue = cpu.getRegister(register);
+
+    				if (Memory.isAddressGood(parameterValue)) {
+        				s.append(String.format(", %s = 0x%08X", Common.gprNames[register], parameterValue));
+    				} else {
+        				s.append(String.format(", %s = 0x%X", Common.gprNames[register], parameterValue));
+    				}
+    			}
+    			parameters = s.toString();
+    		}
+
+    		log.debug(String.format("Starting CodeBlock 0x%08X%s%s, $ra=0x%08X, $sp=0x%08X", address, comment, parameters, cpu._ra, cpu._sp));
     	}
     }
 
     public static void debugCodeBlockEnd(int address, int returnAddress) {
     	if (log.isDebugEnabled()) {
-    		log.debug(String.format("Returning from CodeBlock 0x%08X to 0x%08X, $sp=0x%08X", address, returnAddress, cpu._sp));
+    		log.debug(String.format("Returning from CodeBlock 0x%08X to 0x%08X, $sp=0x%08X, $v0=0x%08X", address, returnAddress, cpu._sp, cpu._v0));
     	}
     }
 
@@ -1443,5 +1465,15 @@ public class RuntimeContext {
     		DebuggerMemory debuggerMemory = (DebuggerMemory) memory;
     		debuggerMemory.addRangeReadWriteBreakpoint(address, address + length - 1);
     	}
+    }
+
+    public static void debugCodeBlock(int address, int numberOfArguments) {
+    	if (debugCodeBlockCalls) {
+    		debugCodeBlocks.put(address, numberOfArguments);
+    	}
+    }
+
+    public static void setFirmwareVersion(int firmwareVersion) {
+    	RuntimeContext.firmwareVersion = firmwareVersion;
     }
 }

@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.log4j.Logger;
@@ -30,7 +31,9 @@ import jpcsp.Emulator;
 import jpcsp.Memory;
 import jpcsp.NIDMapper;
 import jpcsp.Allegrex.compiler.RuntimeContext;
+import jpcsp.HLE.VFS.IVirtualFileSystem;
 import jpcsp.HLE.kernel.Managers;
+import jpcsp.HLE.kernel.types.SceIoStat;
 import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.modules.ThreadManForUser;
 
@@ -40,6 +43,7 @@ import jpcsp.HLE.modules.ThreadManForUser;
  * which modules are loaded explicitly from flash0 or from a PRX.
  * 
  * @author fiveofhearts
+ * @author gid15
  */
 @HLELogging
 public class HLEModuleManager {
@@ -48,28 +52,24 @@ public class HLEModuleManager {
 
     public static final int HLESyscallNid = -1;
 
-    /**
-     * Remember all the allocated syscalls, even when they are uninstalled
-     * so that SyscallHandler can output an appropriate message when trying
-     * to execute an uninstalled syscall.
-     */
-    private HLEModuleFunction[] allSyscallCodeToFunction;
-    private HLEModuleFunction[] syscallCodeToFunction;
-    private int syscallCodeAllocator;
     private boolean modulesStarted = false;
     private boolean startFromSyscall;
+	private NIDMapper nidMapper;
 
     private HashMap<String, List<HLEModule>> flash0prxMap;
     private Set<HLEModule> installedModules = new HashSet<HLEModule>();
+    private Map<Integer, HLEModuleFunction> syscallToFunction;
+    private Map<Integer, HLEModuleFunction> nidToFunction;
 
     private HLELogging defaultHLEFunctionLogging;
 
     /**
-     * The current firmware version as an integer value in this format:
-     *   ABB
-     * where A = major and B = minor, for example 271.
+     * List of PSP modules that can be loaded when they are available.
+     * They will then replace the HLE equivalent.
      */
-    private int firmwareVersion;
+	private static final String[] moduleFileNamesToBeLoaded = {
+			"flash0:/kd/utility.prx"
+	};
 
     /**
      * List of modules that can be loaded
@@ -136,9 +136,9 @@ public class HLEModuleManager {
         sceNpMatching2(Modules.sceNpMatching2Module, new String[] { "np_matching2", "PSP_MODULE_NP_MATCHING2" }),
         sceNpInstall(Modules.sceNpInstallModule, new String[] { "np_inst" }),
         sceNpCamp(Modules.sceNpCampModule, new String[] { "np_campaign" }),
-        scePspNpDrm_user(Modules.scePspNpDrm_userModule, new String[] { "PSP_MODULE_NP_DRM" }),
+        scePspNpDrm_user(Modules.scePspNpDrm_userModule, new String[] { "PSP_MODULE_NP_DRM", "npdrm" }),
         sceVaudio(Modules.sceVaudioModule, new String[] { "PSP_AV_MODULE_VAUDIO", "PSP_MODULE_AV_VAUDIO" }),
-        sceMp4(Modules.sceMp4Module, new String[] { "PSP_MODULE_AV_MP4", "mp4msv" }),
+        sceMp4(Modules.sceMp4Module, new String[] { "PSP_MODULE_AV_MP4", "mp4msv", "libmp4" }),
         sceHttp(Modules.sceHttpModule, new String[] { "libhttp", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
         sceHttps(Modules.sceHttpsModule, new String[] { "libhttp", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }),
         sceHttpStorage(Modules.sceHttpStorageModule, new String[] { "http_storage" }),
@@ -184,7 +184,7 @@ public class HLEModuleManager {
         sceLibUpdateDL(Modules.sceLibUpdateDLModule, new String[] { "libupdown" }),
         sceParseHttp(Modules.sceParseHttpModule, new String[] { "libparse_http", "PSP_MODULE_NET_PARSEHTTP" }),
         sceMgr_driver(Modules.sceMgr_driverModule),
-        sceChnnlsv(Modules.sceChnnlsvModule),
+        sceChnnlsv(Modules.sceChnnlsvModule, new String[] { "chnnlsv" }),
         sceUsbstor(Modules.sceUsbstorModule),
         sceIdStorage(Modules.sceIdStorageModule),
         sceCertLoader(Modules.sceCertLoaderModule, new String[] { "cert_loader", "PSP_MODULE_NET_SSL" }),
@@ -194,23 +194,29 @@ public class HLEModuleManager {
         sceNetStun(Modules.sceNetStunModule),
         sceMeMemory(Modules.sceMeMemoryModule),
         sceMeVideo(Modules.sceMeVideoModule),
-        sceMeAudio(Modules.sceMeAudioModule);
+        sceMeAudio(Modules.sceMeAudioModule),
+        InitForKernel(Modules.InitForKernelModule),
+        sceMemab(Modules.sceMemabModule, new String[] { "memab" }),
+        DmacManForKernel(Modules.DmacManForKernelModule),
+        sceSyscon(Modules.sceSysconModule),
+        sceLed(Modules.sceLedModule),
+        sceSysreg(Modules.sceSysregModule);
 
     	private HLEModule module;
-    	private int firmwareVersionAsDefault;	// FirmwareVersion where the module is loaded by default
+    	private boolean loadedByDefault;
     	private String[] prxNames;
 
     	// Module loaded by default in all Firmware versions
     	DefaultModule(HLEModule module) {
     		this.module = module;
-    		firmwareVersionAsDefault = 100;	// Loaded by default in all firmwares (from 1.00)
+    		loadedByDefault = true;
     		prxNames = null;
     	}
 
     	// Module only loaded as a PRX, under different names
     	DefaultModule(HLEModule module, String[] prxNames) {
     		this.module = module;
-    		firmwareVersionAsDefault = Integer.MAX_VALUE;	// Never loaded by default
+    		loadedByDefault = false;
     		this.prxNames = prxNames;
     	}
 
@@ -222,8 +228,8 @@ public class HLEModuleManager {
     		return prxNames;
     	}
 
-    	public boolean isLoadedByDefault(int firmwareVersion) {
-    		return firmwareVersion >= firmwareVersionAsDefault;
+    	public boolean isLoadedByDefault() {
+    		return loadedByDefault;
     	}
     };
 
@@ -236,6 +242,9 @@ public class HLEModuleManager {
 
     private HLEModuleManager() {
 		defaultHLEFunctionLogging = HLEModuleManager.class.getAnnotation(HLELogging.class);
+		nidMapper = NIDMapper.getInstance();
+		syscallToFunction = new HashMap<>();
+		nidToFunction = new HashMap<>();
     }
 
     /** (String)"2.71" to (int)271 */
@@ -259,25 +268,8 @@ public class HLEModuleManager {
         return version;
     }
 
-    public void Initialise(int firmwareVersion) {
-    	if (syscallCodeToFunction == null) {
-    		// Official syscalls start at 0x2000,
-    		// so we'll put the HLE syscalls far away at 0x4000.
-    		syscallCodeAllocator = 0x4000;
-
-    		syscallCodeToFunction = new HLEModuleFunction[syscallCodeAllocator];
-    		allSyscallCodeToFunction = new HLEModuleFunction[syscallCodeAllocator];
-    	} else {
-    		// Remove all the functions.
-    		// Do not reset the syscall codes, they still might be in use in
-    		// already loaded modules.
-    		for (int i = 0; i < syscallCodeToFunction.length; i++) {
-    			syscallCodeToFunction[i] = null;
-    		}
-    	}
-
+    public void init() {
     	installedModules.clear();
-        this.firmwareVersion = firmwareVersion;
         installDefaultModules();
         initialiseFlash0PRXMap();
     }
@@ -287,18 +279,18 @@ public class HLEModuleManager {
      */
     private void installDefaultModules() {
     	if (log.isDebugEnabled()) {
-    		log.debug(String.format("Loading HLE firmware up to version %d", firmwareVersion));
+    		log.debug(String.format("Loading default HLE modules"));
     	}
 
     	for (DefaultModule defaultModule : DefaultModule.values()) {
-        	if (defaultModule.isLoadedByDefault(firmwareVersion)) {
-        		installModuleWithAnnotations(defaultModule.getModule(), firmwareVersion);
+        	if (defaultModule.isLoadedByDefault()) {
+        		installModuleWithAnnotations(defaultModule.getModule());
         	} else {
         		// This module is not loaded by default on this firmware version.
         		// Install and Uninstall the module to register the module syscalls
         		// so that the loader can still resolve the imports for this module.
-        		installModuleWithAnnotations(defaultModule.getModule(), firmwareVersion);
-        		uninstallModuleWithAnnotations(defaultModule.getModule(), firmwareVersion);
+        		installModuleWithAnnotations(defaultModule.getModule());
+        		uninstallModuleWithAnnotations(defaultModule.getModule());
         	}
         }
     }
@@ -317,7 +309,7 @@ public class HLEModuleManager {
         flash0prxMap = new HashMap<String, List<HLEModule>>();
 
         for (DefaultModule defaultModule : DefaultModule.values()) {
-        	if (!defaultModule.isLoadedByDefault(firmwareVersion)) {
+        	if (!defaultModule.isLoadedByDefault()) {
         		String[] prxNames = defaultModule.getPrxNames();
         		for (int i = 0; prxNames != null && i < prxNames.length; i++) {
         			addToFlash0PRXMap(prxNames[i], defaultModule.getModule());
@@ -341,7 +333,7 @@ public class HLEModuleManager {
 	        List<HLEModule> modules = flash0prxMap.get(prxname.toLowerCase());
 	        if (modules != null) {
 	            for (HLEModule module : modules) {
-	            	installModuleWithAnnotations(module, firmwareVersion);
+	            	installModuleWithAnnotations(module);
 	            }
 	        }
     	}
@@ -363,7 +355,7 @@ public class HLEModuleManager {
 	    	List<HLEModule> prx = flash0prxMap.get(sceModule.modname.toLowerCase());
 	        if (prx != null) {
 	            for (HLEModule module : prx) {
-	            	uninstallModuleWithAnnotations(module, firmwareVersion);
+	            	uninstallModuleWithAnnotations(module);
 	            }
 	        }
     	}
@@ -380,91 +372,33 @@ public class HLEModuleManager {
         }
     }
 
-    public int getSyscallFromNid(int nid) {
-    	// Is this an HLE syscall?
-    	if (nid == HLESyscallNid) {
-    		return syscallCodeAllocator++;
-    	}
-
-    	int code = NIDMapper.getInstance().nidToSyscall(nid);
-        if (code == -1) {
-            // Allocate an arbitrary syscall code to the function
-            code = syscallCodeAllocator++;
-            // Add the new code to the NIDMapper
-            NIDMapper.getInstance().addSyscallNid(nid, code);
-        }
-
-        return code;
-    }
-
-    private void addSyscallCodeToFunction(int code, HLEModuleFunction func) {
-    	if (code >= syscallCodeToFunction.length) {
-    		// Extend the syscallCodeToFunction array
-    		HLEModuleFunction[] extendedArray = new HLEModuleFunction[code + 100];
-    		System.arraycopy(syscallCodeToFunction, 0, extendedArray, 0, syscallCodeToFunction.length);
-    		syscallCodeToFunction = extendedArray;
-
-    		// Also extend allSyscallCodeToFunction
-    		extendedArray = new HLEModuleFunction[syscallCodeToFunction.length];
-    		System.arraycopy(allSyscallCodeToFunction, 0, extendedArray, 0, allSyscallCodeToFunction.length);
-    		allSyscallCodeToFunction = extendedArray;
-    	}
-    	syscallCodeToFunction[code] = func;
-    	allSyscallCodeToFunction[code] = func;
-    }
-
     public void addFunction(int nid, HLEModuleFunction func) {
-        int code = getSyscallFromNid(nid);
-    	if (code < syscallCodeToFunction.length && syscallCodeToFunction[code] != null) {
-    		if (func != syscallCodeToFunction[code]) {
-    			log.error(String.format("Tried to register a second handler for NID 0x%08X called %s", nid, func.getFunctionName()));
-    		} else {
-    			func.setNid(nid);
-    			func.setSyscallCode(code);
-    		}
+    	int syscallCode;
+    	if (nid == HLESyscallNid) {
+    		syscallCode = nidMapper.getNewSyscallNumber();
     	} else {
-            func.setNid(nid);
-    		func.setSyscallCode(code);
-    		addSyscallCodeToFunction(code, func);
+	    	if (!nidMapper.addHLENid(nid, func.getFunctionName(), func.getModuleName(), func.getFirmwareVersion())) {
+				log.error(String.format("Tried to register a second handler for NID 0x%08X called %s", nid, func.getFunctionName()));
+	    	}
+
+	    	nidToFunction.put(nid, func);
+
+	    	syscallCode = nidMapper.getSyscallByNid(nid, func.getModuleName());
+    	}
+
+    	if (syscallCode >= 0) {
+    		func.setSyscallCode(syscallCode);
+    		syscallToFunction.put(syscallCode, func);
     	}
     }
 
-    public void removeFunction(HLEModuleFunction func) {
-        int syscallCode = func.getSyscallCode();
-        if (syscallCode >= 0 && syscallCode < syscallCodeToFunction.length) {
-        	syscallCodeToFunction[syscallCode] = null;
-        }
+    public HLEModuleFunction getFunctionFromSyscallCode(int syscallCode) {
+    	return syscallToFunction.get(syscallCode);
     }
 
-    public HLEModuleFunction getAllFunctionFromSyscallCode(int code) {
-    	if (code < 0 || code >= allSyscallCodeToFunction.length) {
-    		return null;
-    	}
-
-    	return allSyscallCodeToFunction[code];
-    }
-
-    public HLEModuleFunction getFunctionFromSyscallCode(int code) {
-    	if (code < 0 || code >= syscallCodeToFunction.length) {
-    		return null;
-    	}
-
-    	return syscallCodeToFunction[code];
-    }
-
-    public String getAllFunctionNameFromSyscallCode(int code) {
-    	HLEModuleFunction func = getAllFunctionFromSyscallCode(code);
-    	if (func == null) {
-    		return null;
-    	}
-
-        return func.getFunctionName();
-    }
-
-    public int getAllFunctionSyscallCodeFromAddress(int address) {
-    	int code = NIDMapper.getInstance().overwrittenSyscallAddressToCode(address);
-
-    	if (code == -1) {
+    public HLEModuleFunction getFunctionFromAddress(int address) {
+    	int nid = nidMapper.getNidByAddress(address);
+    	if (nid == 0) {
     		// Verify if this not the address of a stub call:
     		//   J   realAddress
     		//   NOP
@@ -473,35 +407,22 @@ public class HLEModuleManager {
         		if (mem.read32(address + 4) == ThreadManForUser.NOP()) {
         			int jumpAddress = (mem.read32(address) & 0x03FFFFFF) << 2;
 
-        			code = NIDMapper.getInstance().overwrittenSyscallAddressToCode(jumpAddress);
+        			nid = nidMapper.getNidByAddress(jumpAddress);
         		}
         	}
     	}
 
-    	HLEModuleFunction func = getAllFunctionFromSyscallCode(code);
-    	if (func == null) {
-    		return -1;
-    	}
-
-    	return code;
-    }
-
-    public HLEModuleFunction getAllFunctionFromAddress(int address) {
-    	int code = getAllFunctionSyscallCodeFromAddress(address);
-    	if (code == -1) {
+    	if (nid == 0) {
     		return null;
     	}
 
-    	return getAllFunctionFromSyscallCode(code);
+    	HLEModuleFunction func = nidToFunction.get(nid);
+
+    	return func;
     }
 
-    public String getAllFunctionNameFromAddress(int address) {
-    	HLEModuleFunction func = getAllFunctionFromAddress(address);
-    	if (func == null) {
-    		return null;
-    	}
-
-    	return func.getFunctionName();
+    public void removeFunction(HLEModuleFunction func) {
+    	nidMapper.unloadNid(func.getNid());
     }
 
     public void startModules(boolean startFromSyscall) {
@@ -512,14 +433,20 @@ public class HLEModuleManager {
 		this.startFromSyscall = startFromSyscall;
 
 		for (DefaultModule defaultModule : DefaultModule.values()) {
-			if (log.isDebugEnabled()) {
-				log.debug(String.format("Starting module %s", defaultModule.module.getName()));
-			}
+			if (defaultModule.module.isStarted()) {
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("Module %s already started", defaultModule.module.getName()));
+				}
+			} else {
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("Starting module %s", defaultModule.module.getName()));
+				}
 
-			defaultModule.module.start();
+				defaultModule.module.start();
 
-			if (log.isDebugEnabled()) {
-				log.debug(String.format("Started module %s", defaultModule.module.getName()));
+				if (log.isDebugEnabled()) {
+					log.debug(String.format("Started module %s", defaultModule.module.getName()));
+				}
 			}
 		}
 
@@ -541,10 +468,6 @@ public class HLEModuleManager {
 
 	public boolean isStartFromSyscall() {
 		return startFromSyscall;
-	}
-
-	public int getMaxSyscallCode() {
-		return syscallCodeAllocator;
 	}
 
 	private void installFunctionWithAnnotations(HLEFunction hleFunction, Method method, HLEModule hleModule) {
@@ -581,7 +504,7 @@ public class HLEModuleManager {
 			functionName = method.getName();
 		}
 
-		HLEModuleFunction hleModuleFunction = new HLEModuleFunction(moduleName, functionName, hleModule, method, hleFunction.checkInsideInterrupt(), hleFunction.checkDispatchThreadEnabled(), hleFunction.stackUsage());
+		HLEModuleFunction hleModuleFunction = new HLEModuleFunction(moduleName, functionName, hleModule, method, hleFunction.checkInsideInterrupt(), hleFunction.checkDispatchThreadEnabled(), hleFunction.stackUsage(), hleFunction.version());
 
 		if (hleUnimplemented != null) {
 			hleModuleFunction.setUnimplemented(true);
@@ -597,13 +520,11 @@ public class HLEModuleManager {
 	}
 
 	/**
-	 * Iterates over an object fields searching for HLEFunction annotations and if the specified
-	 * version is greater than the required version for that HLEFunction, it will install it.
+	 * Iterates over an object fields searching for HLEFunction annotations and install them.
 	 * 
 	 * @param hleModule
-	 * @param version
 	 */
-	public void installModuleWithAnnotations(HLEModule hleModule, int version) {
+	public void installModuleWithAnnotations(HLEModule hleModule) {
 		if (installedModules.contains(hleModule)) {
 			return;
 		}
@@ -611,7 +532,7 @@ public class HLEModuleManager {
 		try {
 			for (Method method : hleModule.getClass().getMethods()) {
 				HLEFunction hleFunction = method.getAnnotation(HLEFunction.class);
-				if (hleFunction != null && version >= hleFunction.version()) {
+				if (hleFunction != null) {
 					installFunctionWithAnnotations(hleFunction, method, hleModule);
 				}
 			}
@@ -627,9 +548,8 @@ public class HLEModuleManager {
 	 * Same as installModuleWithAnnotations but uninstalling.
 	 * 
 	 * @param hleModule
-	 * @param version
 	 */
-	public void uninstallModuleWithAnnotations(HLEModule hleModule, int version) {
+	public void uninstallModuleWithAnnotations(HLEModule hleModule) {
 		try {
 			for (HLEModuleFunction hleModuleFunction : hleModule.installedHLEModuleFunctions.values()) {
 				this.removeFunction(hleModuleFunction);
@@ -640,5 +560,35 @@ public class HLEModuleManager {
 
 		installedModules.remove(hleModule);
 		hleModule.unload();
+	}
+
+	public void loadAvailableFlash0Modules() {
+		List<String> availableModuleFileNames = new LinkedList<>();
+		for (String moduleFileName : moduleFileNamesToBeLoaded) {
+			StringBuilder localFileName = new StringBuilder();
+			IVirtualFileSystem vfs = Modules.IoFileMgrForUserModule.getVirtualFileSystem(moduleFileName, localFileName);
+			if (vfs != null && vfs.ioGetstat(localFileName.toString(), new SceIoStat()) == 0) {
+				// The module is available, load it
+				availableModuleFileNames.add(moduleFileName);
+			}
+		}
+
+		if (availableModuleFileNames.isEmpty()) {
+			// No module available, do nothing
+			return;
+		}
+
+		// These 2 HLE modules need to be started in order
+		// to be able to load and start the available modules.
+		Modules.ModuleMgrForUserModule.start();
+    	Modules.ThreadManForUserModule.start();
+
+    	int startPriority = 0x10;
+    	for (String moduleFileName : availableModuleFileNames) {
+        	if (log.isInfoEnabled()) {
+        		log.info(String.format("Loading and starting the module '%s', it will replace the equivalent HLE functions", moduleFileName));
+        	}
+    		Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule(moduleFileName, startPriority++);
+    	}
 	}
 }

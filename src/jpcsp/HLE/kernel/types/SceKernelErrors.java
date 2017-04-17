@@ -404,6 +404,8 @@ public class SceKernelErrors {
 
     public final static int ERROR_NET_NO_SPACE                                  = 0x80410001;
 
+    public final static int ERROR_NET_NO_EVENT                                  = 0x80410184;
+
     public final static int ERROR_NET_RESOLVER_BAD_ID                           = 0x80410408;
     public final static int ERROR_NET_RESOLVER_ALREADY_STOPPED                  = 0x8041040a;
     public final static int ERROR_NET_RESOLVER_INVALID_HOST                     = 0x80410414;
@@ -424,11 +426,13 @@ public class SceKernelErrors {
     public final static int ERROR_NET_ADHOC_MATCHING_ALREADY_INITIALIZED        = 0x80410812;
     public final static int ERROR_NET_ADHOC_MATCHING_NOT_INITIALIZED            = 0x80410813;
 
+    public final static int ERROR_NET_ADHOCCTL_INVALID_PARAMETER                = 0x80410b04;
     public final static int ERROR_NET_ADHOCCTL_ALREADY_INITIALIZED              = 0x80410b07;
     public final static int ERROR_NET_ADHOCCTL_NOT_INITIALIZED                  = 0x80410b08;
     public final static int ERROR_NET_ADHOCCTL_TOO_MANY_HANDLERS                = 0x80410b12;
 
     public final static int ERROR_WLAN_BAD_PARAMS                               = 0x80410d13;
+    public final static int ERROR_WLAN_NOT_IN_GAMEMODE                          = 0x80410d14;
 
     public final static int ERROR_SAS_INVALID_GRAIN                             = 0x80420001;
     public final static int ERROR_SAS_INVALID_MAX_VOICES                        = 0x80420002;

@@ -21,7 +21,6 @@ import static jpcsp.HLE.modules.SysMemUserForUser.USER_PARTITION_ID;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import jpcsp.Allegrex.CpuState;
 import jpcsp.Allegrex.compiler.Compiler;
 import jpcsp.Allegrex.compiler.Profiler;
 import jpcsp.Allegrex.compiler.RuntimeContext;
@@ -155,10 +154,11 @@ public class Emulator implements Runnable {
     }
 
     public SceModule load(String pspfilename, ByteBuffer f, boolean fromSyscall) throws IOException, GeneralJpcspException {
-
         initNewPsp(fromSyscall);
 
-        module = Loader.getInstance().LoadModule(pspfilename, f, MemoryMap.START_USERSPACE + 0x4000, USER_PARTITION_ID, USER_PARTITION_ID, false);
+        HLEModuleManager.getInstance().loadAvailableFlash0Modules();
+
+    	module = Loader.getInstance().LoadModule(pspfilename, f, MemoryMap.START_USERSPACE + 0x4000, USER_PARTITION_ID, USER_PARTITION_ID, false, true, fromSyscall);
 
         if ((module.fileFormat & Loader.FORMAT_ELF) != Loader.FORMAT_ELF) {
             throw new GeneralJpcspException("File format not supported!");
@@ -186,8 +186,6 @@ public class Emulator implements Runnable {
     private void initCpu(boolean fromSyscall) {
         RuntimeContext.update();
 
-        CpuState cpu = processor.cpu;
-
         int entryAddr = module.entry_addr;
         if (Memory.isAddressGood(module.module_start_func)) {
             if (module.module_start_func != entryAddr) {
@@ -196,11 +194,8 @@ public class Emulator implements Runnable {
             }
         }
 
-        cpu.pc = entryAddr; //PC.
-        cpu.npc = cpu.pc + 4;
-
         HLEModuleManager.getInstance().startModules(fromSyscall);
-        Modules.ThreadManForUserModule.Initialise(module, cpu.pc, module.attribute, module.pspfilename, module.modid, module.gp_value, fromSyscall);
+        Modules.ThreadManForUserModule.Initialise(module, entryAddr, module.attribute, module.pspfilename, module.modid, module.gp_value, fromSyscall);
 
         if (State.memoryViewer != null) {
             State.memoryViewer.RefreshMemory();
@@ -211,6 +206,7 @@ public class Emulator implements Runnable {
         moduleLoaded = false;
 
         HLEModuleManager.getInstance().stopModules();
+        NIDMapper.getInstance().unloadAll();
         RuntimeContext.reset();
 
         if (!fromSyscall) {
@@ -243,14 +239,12 @@ public class Emulator implements Runnable {
         HLEUidObjectMapping.reset();
         ProOnlineNetworkAdapter.init();
 
-        NIDMapper.getInstance().Initialise();
-        Loader.getInstance().reset();
         if (State.fileLogger != null) {
             State.fileLogger.resetLogging();
         }
         MemorySections.getInstance().reset();
 
-        HLEModuleManager.getInstance().Initialise(firmwareVersion);
+        HLEModuleManager.getInstance().init();
         Managers.reset();
         Modules.SysMemUserForUserModule.start();
         Modules.SysMemUserForUserModule.setFirmwareVersion(firmwareVersion);
@@ -415,9 +409,8 @@ public class Emulator implements Runnable {
     public void setFirmwareVersion(int firmwareVersion) {
         this.firmwareVersion = firmwareVersion;
 
-        NIDMapper.getInstance().Initialise();
-        HLEModuleManager.getInstance().Initialise(this.firmwareVersion);
         Modules.SysMemUserForUserModule.setFirmwareVersion(this.firmwareVersion);
+        RuntimeContext.setFirmwareVersion(firmwareVersion);
     }
 
     /**

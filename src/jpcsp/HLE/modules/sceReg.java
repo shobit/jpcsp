@@ -166,6 +166,7 @@ public class sceReg extends HLEModule {
 	private int getKey(CategoryHandle categoryHandle, String name, TPointer32 ptype, TPointer32 psize, TPointer buf, int size) {
     	String fullName = categoryHandle.getFullName();
     	fullName = fullName.replace("flash1:/registry/system", "");
+    	fullName = fullName.replace("flash1/registry/system", "");
 
     	if ("/system/DATA/FONT".equals(fullName) || "/DATA/FONT".equals(fullName)) {
     		List<sceFont.FontRegistryEntry> fontRegistry = Modules.sceFontModule.getFontRegistry();
@@ -515,6 +516,12 @@ public class sceReg extends HLEModule {
     			if (size >= 4) {
         			buf.setValue32(0);
     			}
+    		} else if ("check_drm".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+        			buf.setValue32(0);
+    			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
@@ -802,6 +809,12 @@ public class sceReg extends HLEModule {
     			psize.setValue(adhocSsidPrefix.length() + 1);
     			if (size > 0) {
     				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, adhocSsidPrefix);
+    			}
+    		} else if (name.equals("channel")) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(sceUtility.getSystemParamAdhocChannel());
     			}
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
@@ -1171,7 +1184,7 @@ public class sceReg extends HLEModule {
 	    oskInputCharMask = 0xF;
 	    oskKeytopIndex = 0x5;
 	    npEnv = "np"; // Max length 8
-	    adhocSsidPrefix = "XXX"; // Must be of length 3
+	    adhocSsidPrefix = "PSP"; // Must be of length 3
 	    themeWallpaperMode = 0;
 	    themeColorMode = 0;
 	    themeCustomThemeCode = 0;
@@ -1184,7 +1197,7 @@ public class sceReg extends HLEModule {
 	    npLoginId = settings.readString("registry.npLoginId");
 	    npPassword = settings.readString("registry.npPassword");
 	    npAutoSignInEnable = settings.readInt("registry.npAutoSignInEnable");
-		ownerName = "Jpcsp";
+		ownerName = sceUtility.getSystemParamNickname();
 
 		super.start();
 	}
@@ -1613,5 +1626,72 @@ public class sceReg extends HLEModule {
     	}
 
     	return getKey(categoryHandle, name, TPointer32.NULL, TPointer32.NULL, buf, size);
+    }
+
+    @HLEFunction(nid = 0xDBA46704, version = 150)
+    public int sceRegOpenRegistry_660(TPointer reg, int mode, TPointer32 h) {
+    	return sceRegOpenRegistry(reg, mode, h);
+    }
+
+    @HLEFunction(nid = 0x4F471457, version = 150)
+    public int sceRegOpenCategory_660(int h, String name, int mode, TPointer32 hd) {
+    	return sceRegOpenCategory(h, name, mode, hd);
+    }
+
+    @HLEFunction(nid = 0x9980519F, version = 150)
+    public int sceRegGetKeyInfo_660(int hd, String name, TPointer32 hk, @BufferInfo(usage=Usage.out) TPointer32 ptype, @BufferInfo(usage=Usage.out) TPointer32 psize) {
+    	return sceRegGetKeyInfo(hd, name, hk, ptype, psize);
+    }
+
+    @HLEFunction(nid = 0xF2619407, version = 150)
+    public int sceRegGetKeyInfoByName_660(int hd, String name, @BufferInfo(usage=Usage.out) TPointer32 ptype, @BufferInfo(usage=Usage.out) TPointer32 psize) {
+    	return sceRegGetKeyInfoByName(hd, name, ptype, psize);
+    }
+
+    @HLEFunction(nid = 0xF4A3E396, version = 150)
+    public int sceRegGetKeyValue_660(int hd, int hk, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.out) TPointer buf, int size) {
+    	return sceRegGetKeyValue(hd, hk, buf, size);
+    }
+
+    @HLEFunction(nid = 0x38415B9F, version = 150)
+    public int sceRegGetKeyValueByName_660(int hd, String name, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.out) TPointer buf, int size) {
+    	return sceRegGetKeyValueByName(hd, name, buf, size);
+    }
+
+    @HLEFunction(nid = 0x3B6CA1E6, version = 150)
+    public int sceRegCreateKey_660(int hd, String name, int type, int size) {
+    	return sceRegCreateKey(hd, name, type, size);
+    }
+
+    @HLEFunction(nid = 0x49C70163, version = 150)
+    public int sceRegSetKeyValue_660(int hd, String name, TPointer buf, int size) {
+    	return sceRegSetKeyValue(hd, name, buf, size);
+    }
+
+    @HLEFunction(nid = 0x5FD4764A, version = 150)
+    public int sceRegFlushRegistry_660(int h) {
+    	return sceRegFlushRegistry(h);
+    }
+
+    @HLEFunction(nid = 0xFC742751, version = 150)
+    public int sceRegCloseCategory_660(int hd) {
+    	return sceRegCloseCategory(hd);
+    }
+
+    @HLEFunction(nid = 0x49D77D65, version = 150)
+    public int sceRegCloseRegistry_660(int h) {
+    	return sceRegCloseRegistry(h);
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x61DB9D06, version = 150)
+    public int sceRegRemoveCategory_660(int h, String name) {
+    	return sceRegRemoveCategory(h, name);
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xD743A608, version = 150)
+    public int sceRegFlushCategory_660(int hd) {
+    	return sceRegFlushCategory(hd);
     }
 }

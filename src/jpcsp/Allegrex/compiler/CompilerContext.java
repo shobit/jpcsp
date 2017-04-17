@@ -37,6 +37,8 @@ import java.util.TreeSet;
 
 import jpcsp.Emulator;
 import jpcsp.Memory;
+import jpcsp.MemoryMap;
+import jpcsp.NIDMapper;
 import jpcsp.Processor;
 import jpcsp.State;
 import jpcsp.Allegrex.Common;
@@ -198,7 +200,10 @@ public class CompilerContext implements ICompilerContext {
     }
 
     private void addFastSyscall(int nid) {
-        fastSyscalls.add(HLEModuleManager.getInstance().getSyscallFromNid(nid));
+    	int syscallCode = NIDMapper.getInstance().getSyscallByNid(nid);
+    	if (syscallCode >= 0) {
+    		fastSyscalls.add(syscallCode);
+    	}
     }
 
     public CompilerClassLoader getClassLoader() {
@@ -1296,7 +1301,7 @@ public class CompilerContext implements ICompilerContext {
         		}
 
         		boolean parameterRead = false;
-        		if ((usage == Usage.in || usage == Usage.inout) && (lengthInfo != LengthInfo.unknown || parameterType == TPointer32.class || parameterType == TPointer64.class)) {
+        		if ((usage == Usage.in || usage == Usage.inout) && (lengthInfo != LengthInfo.unknown || parameterType == TPointer16.class || parameterType == TPointer32.class || parameterType == TPointer64.class)) {
     				loadModuleLoggger(func);
     				loadImm(1);
     				mv.visitTypeInsn(Opcodes.ANEWARRAY, Type.getInternalName(Object.class));
@@ -1356,6 +1361,12 @@ public class CompilerContext implements ICompilerContext {
 		        				mv.visitInsn(Opcodes.DUP2_X2);
 		        				mv.visitInsn(Opcodes.POP2);
 		        				mv.visitMethodInsn(Opcodes.INVOKESPECIAL, Type.getInternalName(Long.class), "<init>", "(J)V");
+	        		    	} else if (parameterType == TPointer16.class) {
+		        		        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "read16", "(I)I");
+		        				mv.visitTypeInsn(Opcodes.NEW, Type.getInternalName(Integer.class));
+		        				mv.visitInsn(Opcodes.DUP_X1);
+		        				mv.visitInsn(Opcodes.SWAP);
+		        				mv.visitMethodInsn(Opcodes.INVOKESPECIAL, Type.getInternalName(Integer.class), "<init>", "(I)V");
 	        		    	} else {
 		        		        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "read32", "(I)I");
 		        				mv.visitTypeInsn(Opcodes.NEW, Type.getInternalName(Integer.class));
@@ -1405,32 +1416,48 @@ public class CompilerContext implements ICompilerContext {
 		mv.visitLabel(loggingDisabled);
     }
 
-    private String getLogCheckFunction(HLEModuleFunction func) {
+    private String getLogCheckFunction(String loggingLevel) {
 		String logCheckFunction = "isInfoEnabled";
-		if ("trace".equals(func.getLoggingLevel())) {
+		if ("trace".equals(loggingLevel)) {
 			logCheckFunction = "isTraceEnabled";
-		} else if ("debug".equals(func.getLoggingLevel())) {
+		} else if ("debug".equals(loggingLevel)) {
 			logCheckFunction = "isDebugEnabled";
 		}
 		return logCheckFunction;
     }
 
+    private String getLoggingLevel(HLEModuleFunction func) {
+    	String loggingLevel = func.getLoggingLevel();
+    	if (loggingLevel != null) {
+    		if (func.isUnimplemented() && codeBlock.isHLEFunction()) {
+				// Do not log at the WARN level HLE methods that are
+				// unimplemented but have been overwritten by real PSP modules
+				if ("warn".equals(loggingLevel)) {
+					loggingLevel = "debug";
+				}
+    		}
+    	}
+
+    	return loggingLevel;
+    }
+
     private void logSyscallStart(HLEModuleFunction func) {
-    	if (func.getLoggingLevel() != null) {
+    	String loggingLevel = getLoggingLevel(func);
+    	if (loggingLevel != null) {
     		String prefix = null;
     		if (func.isUnimplemented() && !codeBlock.isHLEFunction()) {
     			prefix = "Unimplemented ";
     		}
-    		logSyscall(func, prefix, getLogCheckFunction(func), func.getLoggingLevel());
+    		logSyscall(func, prefix, getLogCheckFunction(loggingLevel), loggingLevel);
     	}
     }
 
     private void logSyscallEnd(HLEModuleFunction func, boolean isErrorCode) {
-    	if (func.getLoggingLevel() == null) {
+    	String loggingLevel = getLoggingLevel(func);
+    	if (loggingLevel == null) {
     		return;
     	}
-    	String logFunction = func.getLoggingLevel();
-		String logCheckFunction = getLogCheckFunction(func);
+		String logCheckFunction = getLogCheckFunction(loggingLevel);
 
     	// if (Modules.getLogger(func.getModuleName()).isDebugEnabled()) {
     	//     Modules.getLogger(func.getModuleName()).debug(String.format("<function name> returning 0x%X", new Object[1] { new Integer(returnValue) }));
@@ -1460,7 +1487,7 @@ public class CompilerContext implements ICompilerContext {
     	mv.visitMethodInsn(Opcodes.INVOKESTATIC, Type.getInternalName(String.class), "format", "(" + Type.getDescriptor(String.class) + "[" + Type.getDescriptor(Object.class) + ")" + Type.getDescriptor(String.class));
     	loadModuleLoggger(func);
     	mv.visitInsn(Opcodes.SWAP);
-    	mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(Logger.class), logFunction, "(" + Type.getDescriptor(Object.class) + ")V");
+    	mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(Logger.class), loggingLevel, "(" + Type.getDescriptor(Object.class) + ")V");
 
     	if (!isErrorCode) {
 			ParameterInfo[] parameters = new ClassAnalyzer().getParameters(func.getFunctionName(), func.getHLEModuleMethod().getDeclaringClass());
@@ -1493,7 +1520,7 @@ public class CompilerContext implements ICompilerContext {
 	        		}
 
 	        		boolean parameterRead = false;
-	        		if ((usage == Usage.out || usage == Usage.inout) && (lengthInfo != LengthInfo.unknown || parameterType == TPointer32.class || parameterType == TPointer64.class)) {
+	        		if ((usage == Usage.out || usage == Usage.inout) && (lengthInfo != LengthInfo.unknown || parameterType == TPointer16.class || parameterType == TPointer32.class || parameterType == TPointer64.class)) {
 	    				loadModuleLoggger(func);
 	    				loadImm(1);
 	    				mv.visitTypeInsn(Opcodes.ANEWARRAY, Type.getInternalName(Object.class));
@@ -1561,6 +1588,17 @@ public class CompilerContext implements ICompilerContext {
 			        				mv.visitInsn(Opcodes.DUP2_X2);
 			        				mv.visitInsn(Opcodes.POP2);
 			        				mv.visitMethodInsn(Opcodes.INVOKESPECIAL, Type.getInternalName(Long.class), "<init>", "(J)V");
+		        		    	} else if (parameterType == TPointer16.class) {
+			                		if (debugMemory) {
+			                    		mv.visitInsn(Opcodes.DUP);
+			                    		loadImm(2);
+				                		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "debugMemory", "(II)V");
+			                		}
+			        		        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "read16", "(I)I");
+			        				mv.visitTypeInsn(Opcodes.NEW, Type.getInternalName(Integer.class));
+			        				mv.visitInsn(Opcodes.DUP_X1);
+			        				mv.visitInsn(Opcodes.SWAP);
+			        				mv.visitMethodInsn(Opcodes.INVOKESPECIAL, Type.getInternalName(Integer.class), "<init>", "(I)V");
 		        		    	} else {
 			                		if (debugMemory) {
 			                    		mv.visitInsn(Opcodes.DUP);
@@ -1591,7 +1629,7 @@ public class CompilerContext implements ICompilerContext {
 	        			mv.visitLdcInsn(format);
 	                	mv.visitInsn(Opcodes.SWAP);
 	                	mv.visitMethodInsn(Opcodes.INVOKESTATIC, Type.getInternalName(String.class), "format", "(" + Type.getDescriptor(String.class) + "[" + Type.getDescriptor(Object.class) + ")" + Type.getDescriptor(String.class));
-	            		mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(Logger.class), logFunction, "(" + Type.getDescriptor(Object.class) + ")V");
+	            		mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(Logger.class), loggingLevel, "(" + Type.getDescriptor(Object.class) + ")V");
 	            		mv.visitJumpInsn(Opcodes.GOTO, done);
 
 	        			mv.visitLabel(addressNull);
@@ -1619,55 +1657,60 @@ public class CompilerContext implements ICompilerContext {
 
     /**
      * Generate the required Java code to call a syscall function.
-     * The code generated much match the Java behavior implemented in
+     * The code generated must match the Java behavior implemented in
      * jpcsp.HLE.modules.HLEModuleFunctionReflection
      *
      * The following code is generated:
-     *     if (!fastSyscall) {
-     *         RuntimeContext.preSyscall();
-     *     }
-     *     if (func.checkInsideInterrupt()) {
-     *         if (IntrManager.getInstance.isInsideInterrupt()) {
-     *             cpu.gpr[_v0] = SceKernelErrors.ERROR_KERNEL_CANNOT_BE_CALLED_FROM_INTERRUPT;
-     *             goto afterSyscall;
+     *     if (func.getFirmwareVersion() <= RuntimeContext.firmwareVersion) {
+     *         if (!fastSyscall) {
+     *             RuntimeContext.preSyscall();
      *         }
-     *     }
-     *     if (func.checkDispatchThreadEnabled()) {
-     *         if (!Modules.ThreadManForUserModule.isDispatchThreadEnabled()) {
-     *             cpu.gpr[_v0] = SceKernelErrors.ERROR_KERNEL_WAIT_CAN_NOT_WAIT;
-     *             goto afterSyscall;
+     *         if (func.checkInsideInterrupt()) {
+     *             if (IntrManager.getInstance.isInsideInterrupt()) {
+     *                 cpu.gpr[_v0] = SceKernelErrors.ERROR_KERNEL_CANNOT_BE_CALLED_FROM_INTERRUPT;
+     *                 goto afterSyscall;
+     *             }
      *         }
-     *     }
-     *     if (func.isUnimplemented()) {
-     *         Modules.getLogger(func.getModuleName()).warn("Unimplemented <function name> parameterName1=parameterValue1, parameterName2=parameterValue2, ...");
-     *     }
-     *     foreach parameter {
-     *         loadParameter(parameter);
-     *     }
-     *     try {
-     *         returnValue = <module name>.<function name>(...parameters...);
-     *         storeReturnValue();
-     *         if (parameterReader.hasErrorPointer()) {
-     *             errorPointer.setValue(0);
+     *         if (func.checkDispatchThreadEnabled()) {
+     *             if (!Modules.ThreadManForUserModule.isDispatchThreadEnabled()) {
+     *                 cpu.gpr[_v0] = SceKernelErrors.ERROR_KERNEL_WAIT_CAN_NOT_WAIT;
+     *                 goto afterSyscall;
+     *             }
      *         }
-     *     } catch (SceKernelErrorException e) {
-     *         errorCode = e.errorCode;
-     *         if (Modules.getLogger(func.getModuleName()).isDebugEnabled()) {
-     *             Modules.getLogger(func.getModuleName()).debug(String.format("<function name> return errorCode 0x%08X", errorCode));
+     *         if (func.isUnimplemented()) {
+     *             Modules.getLogger(func.getModuleName()).warn("Unimplemented <function name> parameterName1=parameterValue1, parameterName2=parameterValue2, ...");
      *         }
-     *         if (parameterReader.hasErrorPointer()) {
-     *             errorPointer.setValue(errorCode);
-     *             cpu.gpr[_v0] = 0;
+     *         foreach parameter {
+     *             loadParameter(parameter);
+     *         }
+     *         try {
+     *             returnValue = <module name>.<function name>(...parameters...);
+     *             storeReturnValue();
+     *             if (parameterReader.hasErrorPointer()) {
+     *                 errorPointer.setValue(0);
+     *             }
+     *         } catch (SceKernelErrorException e) {
+     *             errorCode = e.errorCode;
+     *             if (Modules.getLogger(func.getModuleName()).isDebugEnabled()) {
+     *                 Modules.getLogger(func.getModuleName()).debug(String.format("<function name> return errorCode 0x%08X", errorCode));
+     *             }
+     *             if (parameterReader.hasErrorPointer()) {
+     *                 errorPointer.setValue(errorCode);
+     *                 cpu.gpr[_v0] = 0;
+     *             } else {
+     *                 cpu.gpr[_v0] = errorCode;
+     *             }
+     *             reload cpu.gpr[_ra]; // an exception is always clearing the whole stack
+     *         }
+     *         afterSyscall:
+     *         if (fastSyscall) {
+     *             RuntimeContext.postSyscallFast();
      *         } else {
-     *             cpu.gpr[_v0] = errorCode;
+     *             RuntimeContext.postSyscall();
      *         }
-     *         reload cpu.gpr[_ra]; // an exception is always clearing the whole stack
-     *     }
-     *     afterSyscall:
-     *     if (fastSyscall) {
-     *         RuntimeContext.postSyscallFast();
      *     } else {
-     *         RuntimeContext.postSyscall();
+     *         Modules.getLogger(func.getModuleName()).warn("<function name> is not supported in firmware version <firmwareVersion>, it requires at least firmware version <function firmwareVersion>");
+     *         cpu.gpr[_v0] = -1;
      *     }
      *
      * @param func         the syscall function
@@ -1677,6 +1720,24 @@ public class CompilerContext implements ICompilerContext {
     private void visitSyscall(HLEModuleFunction func, boolean fastSyscall) {
     	// The compilation of a syscall requires more stack size than usual
     	maxStackSize = SYSCALL_MAX_STACK_SIZE;
+
+    	boolean needFirmwareVersionCheck = true;
+    	if (func.getFirmwareVersion() >= 999) {
+    		// Dummy version number meaning valid for all versions
+    		needFirmwareVersionCheck = false;
+    	} else if (codeInstruction.getAddress() < MemoryMap.START_USERSPACE) {
+    		// When compiling code in the kernel memory space, do not perform any version check.
+    		// This is used by overwritten HLE functions.
+    		needFirmwareVersionCheck = false;
+    	}
+
+    	Label unsupportedVersionLabel = null;
+    	if (needFirmwareVersionCheck) {
+    		unsupportedVersionLabel = new Label();
+    		loadImm(func.getFirmwareVersion());
+    		mv.visitFieldInsn(Opcodes.GETSTATIC, runtimeContextInternalName, "firmwareVersion", "I");
+    		mv.visitJumpInsn(Opcodes.IF_ICMPGT, unsupportedVersionLabel);
+    	}
 
     	// Save the syscall parameter to locals for debugging
     	if (!fastSyscall) {
@@ -1846,6 +1907,19 @@ public class CompilerContext implements ICompilerContext {
         } else {
     		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "postSyscall", "()V");
         }
+
+        if (needFirmwareVersionCheck) {
+        	Label afterVersionCheckLabel = new Label();
+        	mv.visitJumpInsn(Opcodes.GOTO, afterVersionCheckLabel);
+
+        	mv.visitLabel(unsupportedVersionLabel);
+        	loadModuleLoggger(func);
+        	mv.visitLdcInsn(String.format("%s is not supported in firmware version %d, it requires at least firmware version %d", func.getFunctionName(), RuntimeContext.firmwareVersion, func.getFirmwareVersion()));
+        	mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(Logger.class), "warn", "(" + Type.getDescriptor(Object.class) + ")V");
+        	storeRegister(_v0, -1);
+
+        	mv.visitLabel(afterVersionCheckLabel);
+        }
     }
 
     /**
@@ -1871,7 +1945,16 @@ public class CompilerContext implements ICompilerContext {
     		storePc();
     	}
 
-    	HLEModuleFunction func = HLEModuleManager.getInstance().getFunctionFromSyscallCode(code);
+    	HLEModuleFunction func = null;
+    	// Call the HLE method only when it has not been overwritten
+    	if (NIDMapper.getInstance().getAddressBySyscall(code) == 0) {
+    		func = HLEModuleManager.getInstance().getFunctionFromSyscallCode(code);
+    	} else {
+    		if (log.isDebugEnabled()) {
+    			log.debug(String.format("Calling overwritten HLE method '%s' instead of syscall", NIDMapper.getInstance().getNameBySyscall(code)));
+    		}
+    	}
+
     	boolean fastSyscall = isFastSyscall(code);
     	if (func == null) {
 	    	loadImm(code);
@@ -1938,7 +2021,7 @@ public class CompilerContext implements ICompilerContext {
     }
 
     private void startHLEMethod() {
-        HLEModuleFunction func = HLEModuleManager.getInstance().getAllFunctionFromAddress(codeBlock.getStartAddress());
+        HLEModuleFunction func = HLEModuleManager.getInstance().getFunctionFromAddress(codeBlock.getStartAddress());
         codeBlock.setHLEFunction(func);
 
         if (codeBlock.isHLEFunction()) {

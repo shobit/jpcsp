@@ -128,6 +128,7 @@ public class sceUsb extends HLEModule {
 	 *
 	 * @return 0 on success
 	 */
+	@SuppressWarnings("unlikely-arg-type")
 	@HLEUnimplemented
 	@HLEFunction(nid = 0xC2464FA0, version = 150)
 	public int sceUsbStop(PspString driverName, int size, @CanBeNull TPointer args) {
