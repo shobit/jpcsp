@@ -119,6 +119,7 @@ public class RuntimeContext {
 	private static sceDisplay sceDisplayModule;
 	private static final Object idleSyncObject = new Object();
 	public static int firmwareVersion;
+	private static boolean isHomebrew = false;
 
 	private static class CompilerEnabledSettingsListerner extends AbstractBoolSettingsListener {
 		@Override
@@ -266,38 +267,46 @@ public class RuntimeContext {
 		execute(insn, opcode);
 	}
 
+	private static String getDebugCodeBlockStart(int address) {
+		String comment = "";
+		int syscallAddress = address + 4;
+		if (Memory.isAddressGood(syscallAddress)) {
+    		int syscallOpcode = memory.read32(syscallAddress);
+    		Instruction syscallInstruction = Decoder.instruction(syscallOpcode);
+    		if (syscallInstruction == Instructions.SYSCALL) {
+        		String syscallDisasm = syscallInstruction.disasm(syscallAddress, syscallOpcode);
+    			comment = syscallDisasm.substring(19);
+    		}
+		}
+
+		String parameters = "";
+		Integer numberOfParameters = debugCodeBlocks.get(address);
+		if (numberOfParameters != null) {
+			StringBuilder s = new StringBuilder();
+			int maxRegisterParameters = Math.min(numberOfParameters.intValue(), 8);
+			for (int i = 0; i < maxRegisterParameters; i++) {
+				int register = Common._a0 + i;
+				int parameterValue = cpu.getRegister(register);
+
+				if (Memory.isAddressGood(parameterValue)) {
+    				s.append(String.format(", %s = 0x%08X", Common.gprNames[register], parameterValue));
+				} else {
+    				s.append(String.format(", %s = 0x%X", Common.gprNames[register], parameterValue));
+				}
+			}
+			parameters = s.toString();
+		}
+
+		return String.format("Starting CodeBlock 0x%08X%s%s, $ra=0x%08X, $sp=0x%08X", address, comment, parameters, cpu._ra, cpu._sp);
+	}
+
 	public static void debugCodeBlockStart(int address) {
-    	if (log.isDebugEnabled()) {
-    		String comment = "";
-    		int syscallAddress = address + 4;
-    		if (Memory.isAddressGood(syscallAddress)) {
-        		int syscallOpcode = memory.read32(syscallAddress);
-        		Instruction syscallInstruction = Decoder.instruction(syscallOpcode);
-        		if (syscallInstruction == Instructions.SYSCALL) {
-            		String syscallDisasm = syscallInstruction.disasm(syscallAddress, syscallOpcode);
-        			comment = syscallDisasm.substring(19);
-        		}
-    		}
-
-    		String parameters = "";
-    		Integer numberOfParameters = debugCodeBlocks.get(address);
-    		if (numberOfParameters != null) {
-    			StringBuilder s = new StringBuilder();
-    			int maxRegisterParameters = Math.min(numberOfParameters.intValue(), 8);
-    			for (int i = 0; i < maxRegisterParameters; i++) {
-    				int register = Common._a0 + i;
-    				int parameterValue = cpu.getRegister(register);
-
-    				if (Memory.isAddressGood(parameterValue)) {
-        				s.append(String.format(", %s = 0x%08X", Common.gprNames[register], parameterValue));
-    				} else {
-        				s.append(String.format(", %s = 0x%X", Common.gprNames[register], parameterValue));
-    				}
-    			}
-    			parameters = s.toString();
-    		}
-
-    		log.debug(String.format("Starting CodeBlock 0x%08X%s%s, $ra=0x%08X, $sp=0x%08X", address, comment, parameters, cpu._ra, cpu._sp));
+		if (!debugCodeBlocks.isEmpty() && debugCodeBlocks.containsKey(address)) {
+			if (log.isInfoEnabled()) {
+				log.info(getDebugCodeBlockStart(address));
+			}
+		} else if (log.isDebugEnabled()) {
+    		log.debug(getDebugCodeBlockStart(address));
     	}
     }
 
@@ -1451,7 +1460,11 @@ public class RuntimeContext {
     }
 
     public static void setIsHomebrew(boolean isHomebrew) {
-    	// Currently, nothing special to do for Homebrew's
+    	RuntimeContext.isHomebrew = isHomebrew;
+    }
+
+    public static boolean isHomebrew() {
+    	return isHomebrew;
     }
 
     public static void onCodeModification(int pc, int opcode) {
@@ -1475,5 +1488,13 @@ public class RuntimeContext {
 
     public static void setFirmwareVersion(int firmwareVersion) {
     	RuntimeContext.firmwareVersion = firmwareVersion;
+    }
+
+    public static boolean hasMemoryInt() {
+    	return memoryInt != null;
+    }
+
+    public static int[] getMemoryInt() {
+    	return memoryInt;
     }
 }

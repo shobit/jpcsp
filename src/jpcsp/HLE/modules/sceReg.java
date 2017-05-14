@@ -32,6 +32,7 @@ import jpcsp.HLE.Modules;
 import jpcsp.HLE.TPointer;
 import jpcsp.HLE.TPointer32;
 import jpcsp.HLE.kernel.managers.SceUidManager;
+import jpcsp.HLE.kernel.types.SceKernelErrors;
 import jpcsp.HLE.modules.sceFont.FontRegistryEntry;
 import jpcsp.settings.Settings;
 import jpcsp.util.Utilities;
@@ -167,6 +168,7 @@ public class sceReg extends HLEModule {
     	String fullName = categoryHandle.getFullName();
     	fullName = fullName.replace("flash1:/registry/system", "");
     	fullName = fullName.replace("flash1/registry/system", "");
+    	fullName = fullName.replace("flash2/registry/system", "");
 
     	if ("/system/DATA/FONT".equals(fullName) || "/DATA/FONT".equals(fullName)) {
     		List<sceFont.FontRegistryEntry> fontRegistry = Modules.sceFontModule.getFontRegistry();
@@ -847,6 +849,143 @@ public class sceReg extends HLEModule {
     		} else {
     			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
     		}
+    	} else if (fullName.matches("/CONFIG/NETWORK/INFRASTRUCTURE/\\d+")) {
+    		String indexName = fullName.replace("/CONFIG/NETWORK/INFRASTRUCTURE/", "");
+    		int index = Integer.parseInt(indexName);
+            if ("cnf_name".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			String cnfName = sceUtility.getNetParamName(index);
+    			psize.setValue(cnfName.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, cnfName);
+    			}
+    		} else if ("ssid".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			String ssid = sceNetApctl.getSSID();
+    			psize.setValue(ssid.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, ssid);
+    			}
+    		} else if ("auth_proto".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+                    // 0 is no security.
+                    // 1 is WEP (64bit).
+                    // 2 is WEP (128bit).
+                    // 3 is WPA.
+    				buf.setValue32(1);
+    			}
+    		} else if ("wep_key".equals(name)) {
+    			ptype.setValue(REG_TYPE_BIN);
+    			String wepKey = "XXXXXXXXXXXXX"; // Max length is 13
+    			psize.setValue(wepKey.length());
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, wepKey);
+    			}
+    		} else if ("how_to_set_ip".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+                    // 0 is DHCP.
+                    // 1 is static.
+                    // 2 is PPPOE.
+    				buf.setValue32(0);
+    			}
+    		} else if ("dns_flag".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+                    // 0 is auto.
+                    // 1 is manual.
+    				buf.setValue32(0);
+    			}
+    		} else if ("primary_dns".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			String dns = sceNetApctl.getPrimaryDNS();
+    			psize.setValue(dns.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, dns);
+    			}
+    		} else if ("secondary_dns".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			String dns = sceNetApctl.getSecondaryDNS();
+    			psize.setValue(dns.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, dns);
+    			}
+    		} else if ("http_proxy_flag".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+                    // 0 is to not use proxy.
+                    // 1 is to use proxy.
+    				buf.setValue32(0);
+    			}
+    		} else if ("version".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+                    // 0 is not used.
+                    // 1 is old version.
+                    // 2 is new version.
+    				buf.setValue32(2);
+    			}
+    		} else if ("auth_8021x_type".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+                    // 0 is none.
+                    // 1 is EAP (MD5).
+    				buf.setValue32(0);
+    			}
+    		} else if ("browser_flag".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+                    // 0 is to not start the native browser.
+                    // 1 is to start the native browser.
+    				buf.setValue32(0);
+    			}
+    		} else if ("ip_address".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			String ip = sceNetApctl.getLocalHostIP();
+    			psize.setValue(ip.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, ip);
+    			}
+    		} else if ("netmask".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			String netmask = sceNetApctl.getSubnetMask();
+    			psize.setValue(netmask.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, netmask);
+    			}
+    		} else if ("default_route".equals(name)) {
+    			ptype.setValue(REG_TYPE_STR);
+    			String gateway = sceNetApctl.getGateway();
+    			psize.setValue(gateway.length() + 1);
+    			if (size > 0) {
+    				Utilities.writeStringNZ(buf.getMemory(), buf.getAddress(), size, gateway);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
+    	} else if (fullName.matches("/CONFIG/NETWORK/INFRASTRUCTURE/\\d+/SUB1")) {
+    		String indexName = fullName.replace("/CONFIG/NETWORK/INFRASTRUCTURE/", "");
+    		int index = Integer.parseInt(indexName.substring(0, indexName.indexOf("/")));
+    		if (log.isDebugEnabled()) {
+    			log.debug(String.format("/CONFIG/NETWORK/INFRASTRUCTURE, index=%d, SUB1", index));
+    		}
+    		if ("last_leased_dhcp_addr".equals(name)) {
+    			ptype.setValue(REG_TYPE_INT);
+    			psize.setValue(4);
+    			if (size >= 4) {
+    				buf.setValue32(0);
+    			}
+    		} else {
+    			log.warn(String.format("Unknown registry entry '%s/%s'", fullName, name));
+    		}
     	} else if ("/DATA/COUNT".equals(fullName)) {
     		if ("wifi_connect_count".equals(name)) {
     			ptype.setValue(REG_TYPE_INT);
@@ -1203,7 +1342,7 @@ public class sceReg extends HLEModule {
 	}
 
     @HLEFunction(nid = 0x92E41280, version = 150)
-    public int sceRegOpenRegistry(TPointer reg, int mode, TPointer32 h) {
+    public int sceRegOpenRegistry(TPointer reg, int mode, @BufferInfo(usage=Usage.out) TPointer32 h) {
     	int regType = reg.getValue32(0);
     	int nameLen = reg.getValue32(260);
     	int unknown1 = reg.getValue32(264);
@@ -1241,7 +1380,7 @@ public class sceReg extends HLEModule {
     }
 
     @HLEFunction(nid = 0x1D8A762E, version = 150)
-    public int sceRegOpenCategory(int h, String name, int mode, TPointer32 hd) {
+    public int sceRegOpenCategory(int h, String name, int mode, @BufferInfo(usage=Usage.out) TPointer32 hd) {
     	RegistryHandle registryHandle = registryHandles.get(h);
     	if (registryHandle == null) {
     		return -1;
@@ -1255,8 +1394,19 @@ public class sceReg extends HLEModule {
     		int index = Integer.parseInt(categoryHandle.getFullName().substring(31));
     		if (index < 0 || index >= fontRegistry.size()) {
     			if (mode != REG_MODE_READ_WRITE) {
-    				return -1;
+    				return SceKernelErrors.ERROR_REGISTRY_NOT_FOUND;
     			}
+    		}
+    	} else if (categoryHandle.getFullName().startsWith("flash2/registry/system/CONFIG/NETWORK/INFRASTRUCTURE/")) {
+    		String indexString = categoryHandle.getFullName().substring(53);
+    		int sep = indexString.indexOf('/');
+    		if (sep >= 0) {
+    			indexString = indexString.substring(0, sep);
+    		}
+    		int index = Integer.parseInt(indexString);
+    		// We do not return too many entries as some homebrew only support a limited number of entries.
+    		if (index > sceUtility.PSP_NETPARAM_MAX_NUMBER_DUMMY_ENTRIES) {
+    			return SceKernelErrors.ERROR_REGISTRY_NOT_FOUND;
     		}
     	}
 
@@ -1629,12 +1779,12 @@ public class sceReg extends HLEModule {
     }
 
     @HLEFunction(nid = 0xDBA46704, version = 150)
-    public int sceRegOpenRegistry_660(TPointer reg, int mode, TPointer32 h) {
+    public int sceRegOpenRegistry_660(TPointer reg, int mode, @BufferInfo(usage=Usage.out) TPointer32 h) {
     	return sceRegOpenRegistry(reg, mode, h);
     }
 
     @HLEFunction(nid = 0x4F471457, version = 150)
-    public int sceRegOpenCategory_660(int h, String name, int mode, TPointer32 hd) {
+    public int sceRegOpenCategory_660(int h, String name, int mode, @BufferInfo(usage=Usage.out) TPointer32 hd) {
     	return sceRegOpenCategory(h, name, mode, hd);
     }
 

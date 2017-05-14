@@ -22,6 +22,7 @@ import java.nio.IntBuffer;
 
 import jpcsp.Memory;
 import jpcsp.MemoryMap;
+import jpcsp.Allegrex.compiler.RuntimeContext;
 
 /**
  * @author gid15
@@ -44,8 +45,8 @@ public class MemoryReader {
 		return length;
 	}
 
-	private static IMemoryReader getFastMemoryReader(FastMemory mem, int address, int step) {
-		int[] memoryInt = mem.getAll();
+	private static IMemoryReader getFastMemoryReader(int address, int step) {
+		int[] memoryInt = RuntimeContext.getMemoryInt();
 
 		switch (step) {
 		case 1: return new MemoryReaderIntArray8(memoryInt, address);
@@ -71,14 +72,12 @@ public class MemoryReader {
 	 * @return        the MemoryReader
 	 */
 	public static IMemoryReader getMemoryReader(int address, int length, int step) {
-		Memory mem = Memory.getInstance();
-
 		address &= Memory.addressMask;
-		if (mem instanceof FastMemory) {
-			return getFastMemoryReader((FastMemory) mem, address, step);
+		if (RuntimeContext.hasMemoryInt()) {
+			return getFastMemoryReader(address, step);
 		}
 
-		if (!(mem instanceof DebuggerMemory)) {
+		if (!DebuggerMemory.isInstalled()) {
 			Buffer buffer = Memory.getInstance().getBuffer(address, length);
 
 			if (buffer instanceof IntBuffer) {
@@ -115,26 +114,24 @@ public class MemoryReader {
 	 * @return        the MemoryReader
 	 */
 	public static IMemoryReader getMemoryReader(int address, int step) {
-		Memory mem = Memory.getInstance();
-
 		address &= Memory.addressMask;
-		if (mem instanceof FastMemory) {
-			return getFastMemoryReader((FastMemory) mem, address, step);
+		if (RuntimeContext.hasMemoryInt()) {
+			return getFastMemoryReader(address, step);
 		}
 		return getMemoryReader(address, getMaxLength(address), step);
 	}
 
-	public static IMemoryReader getMemoryReader(byte[] bytes, int offset, int length, int step) {
+	public static IMemoryReader getMemoryReader(int address, byte[] bytes, int offset, int length, int step) {
 		switch (step) {
-		case 1: return new MemoryReaderBytes8(bytes, offset, length);
-		case 2: return new MemoryReaderBytes16(bytes, offset, length);
-		case 4: return new MemoryReaderBytes32(bytes, offset, length);
+		case 1: return new MemoryReaderBytes8(address, bytes, offset, length);
+		case 2: return new MemoryReaderBytes16(address, bytes, offset, length);
+		case 4: return new MemoryReaderBytes32(address, bytes, offset, length);
 		}
 		return null;
 	}
 
-	public static IMemoryReader getMemoryReader(int[] ints, int offset, int length) {
-		return new MemoryReaderInts32(ints, offset, length);
+	public static IMemoryReader getMemoryReader(int address, int[] ints, int offset, int length) {
+		return new MemoryReaderInts32(address, ints, offset, length);
 		
 	}
 
@@ -511,11 +508,13 @@ public class MemoryReader {
 	}
 
 	private final static class MemoryReaderBytes8 implements IMemoryReader {
+		private int address;
 		private final byte[] bytes;
 		private int offset;
 		private int maxOffset;
 
-		public MemoryReaderBytes8(byte[] bytes, int offset, int length) {
+		public MemoryReaderBytes8(int address, byte[] bytes, int offset, int length) {
+			this.address = address;
 			this.bytes = bytes;
 			this.offset = offset;
 			maxOffset = offset + length;
@@ -526,26 +525,30 @@ public class MemoryReader {
 			if (offset >= maxOffset) {
 				return 0;
 			}
+			address++;
 			return bytes[offset++] & 0xFF;
 		}
 
 		@Override
 		public void skip(int n) {
 			offset += n;
+			address += n;
 		}
 
 		@Override
 		public int getCurrentAddress() {
-			return 0;
+			return address;
 		}
 	}
 
 	private final static class MemoryReaderBytes16 implements IMemoryReader {
+		private int address;
 		private final byte[] bytes;
 		private int offset;
 		private int maxOffset;
 
-		public MemoryReaderBytes16(byte[] bytes, int offset, int length) {
+		public MemoryReaderBytes16(int address, byte[] bytes, int offset, int length) {
+			this.address = address;
 			this.bytes = bytes;
 			this.offset = offset;
 			maxOffset = offset + length;
@@ -556,26 +559,30 @@ public class MemoryReader {
 			if (offset >= maxOffset) {
 				return 0;
 			}
+			address += 2;
 			return (bytes[offset++] & 0xFF) | ((bytes[offset++] & 0xFF) << 8);
 		}
 
 		@Override
 		public void skip(int n) {
 			offset += n * 2;
+			address += n * 2;
 		}
 
 		@Override
 		public int getCurrentAddress() {
-			return 0;
+			return address;
 		}
 	}
 
 	private final static class MemoryReaderBytes32 implements IMemoryReader {
+		private int address;
 		private final byte[] bytes;
 		private int offset;
 		private int maxOffset;
 
-		public MemoryReaderBytes32(byte[] bytes, int offset, int length) {
+		public MemoryReaderBytes32(int address, byte[] bytes, int offset, int length) {
+			this.address = address;
 			this.bytes = bytes;
 			this.offset = offset;
 			maxOffset = offset + length;
@@ -586,6 +593,7 @@ public class MemoryReader {
 			if (offset >= maxOffset) {
 				return 0;
 			}
+			address += 4;
 			return (bytes[offset++] & 0xFF) |
 			       ((bytes[offset++] & 0xFF) << 8) |
 			       ((bytes[offset++] & 0xFF) << 16) |
@@ -595,20 +603,23 @@ public class MemoryReader {
 		@Override
 		public void skip(int n) {
 			offset += n * 4;
+			address += n * 4;
 		}
 
 		@Override
 		public int getCurrentAddress() {
-			return 0;
+			return address;
 		}
 	}
 
 	private final static class MemoryReaderInts32 implements IMemoryReader {
+		private int address;
 		private final int[] ints;
 		private int offset;
 		private int maxOffset;
 
-		public MemoryReaderInts32(int[] ints, int offset, int length) {
+		public MemoryReaderInts32(int address, int[] ints, int offset, int length) {
+			this.address = address;
 			this.ints = ints;
 			this.offset = offset;
 			maxOffset = offset + (length >> 2);
@@ -619,17 +630,19 @@ public class MemoryReader {
 			if (offset >= maxOffset) {
 				return 0;
 			}
+			address += 4;
 			return ints[offset++];
 		}
 
 		@Override
 		public void skip(int n) {
 			offset += n;
+			address += n * 4;
 		}
 
 		@Override
 		public int getCurrentAddress() {
-			return 0;
+			return address;
 		}
 	}
 }

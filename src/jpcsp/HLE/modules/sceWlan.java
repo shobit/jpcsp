@@ -50,6 +50,7 @@ import jpcsp.HLE.TPointer;
 import jpcsp.HLE.TPointer16;
 import jpcsp.HLE.TPointer32;
 import jpcsp.HLE.kernel.Managers;
+import jpcsp.HLE.kernel.managers.SystemTimeManager;
 import jpcsp.HLE.kernel.types.IAction;
 import jpcsp.HLE.kernel.types.SceKernelErrors;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
@@ -61,6 +62,7 @@ import jpcsp.HLE.kernel.types.SceNetWlanScanInfo;
 import jpcsp.HLE.kernel.types.pspNetMacAddress;
 import jpcsp.HLE.Modules;
 import jpcsp.hardware.Wlan;
+import jpcsp.network.accesspoint.AccessPoint;
 import jpcsp.scheduler.Scheduler;
 import jpcsp.util.Utilities;
 
@@ -68,25 +70,29 @@ import org.apache.log4j.Logger;
 
 public class sceWlan extends HLEModule {
     public static Logger log = Modules.getLogger("sceWlan");
+    public static final int IOCTL_CMD_UNKNOWN_0x2 = 0x2;
     public static final int IOCTL_CMD_START_SCANNING = 0x34;
     public static final int IOCTL_CMD_CREATE = 0x35;
     public static final int IOCTL_CMD_CONNECT = 0x36;
     public static final int IOCTL_CMD_GET_INFO = 0x37;
     public static final int IOCTL_CMD_DISCONNECT = 0x38;
+    public static final int IOCTL_CMD_UNKNOWN_0x42 = 0x42;
     public static final int IOCTL_CMD_ENTER_GAME_MODE = 0x44;
+    public static final int IOCTL_CMD_SET_WEP_KEY = 0x47;
+    public static final int WLAN_MODE_INFRASTRUCTURE = 1;
+    public static final int WLAN_MODE_ADHOC = 2;
     private static int wlanSocketPort = 30010;
     private static final int wlanThreadPollingDelayUs = 12000; // 12ms
     private static final int wlanScanActionDelayUs = 50000; // 50ms
     private static final int wlanConnectActionDelayUs = 50000; // 50ms
     private static final int wlanCreateActionDelayUs = 50000; // 50ms
     private static final int wlanDisconnectActionDelayUs = 50000; // 50ms
-    private static final byte WLAN_CMD_DATA          = (byte) 0;
-    private static final byte WLAN_CMD_SCAN_REQUEST  = (byte) 1;
-    private static final byte WLAN_CMD_SCAN_RESPONSE = (byte) 2;
+    public static final byte WLAN_CMD_DATA          = (byte) 0;
+    public static final byte WLAN_CMD_SCAN_REQUEST  = (byte) 1;
+    public static final byte WLAN_CMD_SCAN_RESPONSE = (byte) 2;
     static private final byte[] dummyOtherMacAddress = new byte[] { 0x10,  0x22, 0x33, 0x44, 0x55, 0x66 };
     private static final int[] channels = new int[] { 1, 6, 11 };
     private int joinedChannel;
-    private String joinedSSID;
     private int dummyMessageStep;
     private TPointer dummyMessageHandleAddr;
     private DatagramSocket wlanSocket;
@@ -100,6 +106,9 @@ public class sceWlan extends HLEModule {
     private List<GameModeState> gameModeStates;
     private int gameModeDataLength;
     private String[] channelSSIDs;
+    private int[] channelModes;
+    private int wlanDropRate;
+    private int wlanDropDuration;
 
     private static class GameModeState {
     	public long timeStamp;
@@ -116,7 +125,7 @@ public class sceWlan extends HLEModule {
 
     	public void doUpdate() {
     		updated = true;
-    		timeStamp = Emulator.getClock().microTime();
+    		timeStamp = SystemTimeManager.getSystemTime();
     	}
 
 		@Override
@@ -195,8 +204,8 @@ public class sceWlan extends HLEModule {
 			maxChannel = Math.max(maxChannel, channels[i]);
 		}
 		channelSSIDs = new String[maxChannel + 1];
+		channelModes = new int[maxChannel + 1];
 		joinedChannel = -1;
-		joinedSSID = null;
 
 		super.start();
 	}
@@ -253,7 +262,7 @@ public class sceWlan extends HLEModule {
 			if (log.isDebugEnabled()) {
 				log.debug(String.format("End of scan action:"));
 				for (int ch : channels) {
-					log.debug(String.format("Scan result channel#%d, ssid='%s'", ch, channelSSIDs[ch]));
+					log.debug(String.format("Scan result channel#%d, ssid='%s', mode=%d", ch, channelSSIDs[ch], channelModes[ch]));
 				}
 			}
 
@@ -274,7 +283,7 @@ public class sceWlan extends HLEModule {
 						scanInfo.bssid = "Jpcsp";
 						scanInfo.channel = channel;
 						scanInfo.ssid = ssid;
-						scanInfo.type = 2;
+						scanInfo.mode = channelModes[channel];
 						scanInfo.unknown44 = 1000; // Unknown value, need to be != 0
 						scanInfo.write(addr.getMemory(), addr.getAddress() + 4);
 
@@ -363,13 +372,25 @@ public class sceWlan extends HLEModule {
     	return wlanSocket != null;
     }
 
+    public static int getSocketPort() {
+    	return wlanSocketPort;
+    }
+
+    private int getBroadcastPort(int channel) {
+    	if (channel >= 0 && channelModes[channel] == WLAN_MODE_INFRASTRUCTURE) {
+    		return AccessPoint.getInstance().getPort();
+    	}
+
+    	return wlanSocketPort ^ 1;
+    }
+
     protected void sendPacket(byte[] buffer, int bufferLength) {
     	if (log.isDebugEnabled()) {
     		log.debug(String.format("sendPacket %s", Utilities.getMemoryDump(buffer, 0, bufferLength)));
     	}
 
     	try {
-			InetSocketAddress broadcastAddress[] = sceNetInet.getBroadcastInetSocketAddress(wlanSocketPort ^ 1);
+			InetSocketAddress broadcastAddress[] = sceNetInet.getBroadcastInetSocketAddress(getBroadcastPort(joinedChannel));
 			if (broadcastAddress != null) {
 				for (int i = 0; i < broadcastAddress.length; i++) {
 					DatagramPacket packet = new DatagramPacket(buffer, bufferLength, broadcastAddress[i]);
@@ -390,7 +411,9 @@ public class sceWlan extends HLEModule {
     	packetBuffer[offset] = WLAN_CMD_DATA;
     	offset++;
     	// Add the joined SSID in front of the data
-    	Utilities.writeStringNZ(packetBuffer, offset, 32, joinedSSID);
+    	if (joinedChannel >= 0) {
+    		Utilities.writeStringNZ(packetBuffer, offset, 32, channelSSIDs[joinedChannel]);
+    	}
     	offset += 32;
     	// Add the data
     	System.arraycopy(buffer, 0, packetBuffer, offset, bufferLength);
@@ -434,16 +457,16 @@ public class sceWlan extends HLEModule {
     	return false;
     }
 
-    private void setChannelSSID(int channel, String ssid) {
+    private void setChannelSSID(int channel, String ssid, int mode) {
     	if (ssid != null && ssid.length() > 0 && isValidChannel(channel)) {
     		channelSSIDs[channel] = ssid;
+    		channelModes[channel] = mode;
     	}
     }
 
-    private void joinChannelSSID(int channel, String ssid) {
-    	setChannelSSID(channel, ssid);
+    private void joinChannelSSID(int channel, String ssid, int mode) {
+    	setChannelSSID(channel, ssid, mode);
     	joinedChannel = channel;
-    	joinedSSID = ssid;
     }
 
     private void processCmd(byte cmd, byte[] buffer, int offset, int length) {
@@ -468,7 +491,7 @@ public class sceWlan extends HLEModule {
     	}
 
     	if (cmd == WLAN_CMD_SCAN_REQUEST) {
-    		byte[] scanResponse = new byte[1 + MAC_ADDRESS_LENGTH + (32 + 1) * 3];
+    		byte[] scanResponse = new byte[1 + MAC_ADDRESS_LENGTH + (32 + 2) * channels.length];
     		int responseOffset = 0;
 
     		scanResponse[responseOffset] = WLAN_CMD_SCAN_RESPONSE;
@@ -481,13 +504,20 @@ public class sceWlan extends HLEModule {
     			scanResponse[responseOffset] = (byte) channel;
     			responseOffset++;
 
-        		Utilities.writeStringNZ(scanResponse, responseOffset, 32, channelSSIDs[channel]);
+    			scanResponse[responseOffset] = (byte) channelModes[channel];
+    			responseOffset++;
+
+    			Utilities.writeStringNZ(scanResponse, responseOffset, 32, channelSSIDs[channel]);
         		responseOffset += 32;
     		}
     		sendPacket(scanResponse, responseOffset);
     	} else if (cmd == WLAN_CMD_SCAN_RESPONSE) {
-    		while (length >= 33) {
+    		while (length >= 34) {
     			int channel = buffer[offset];
+    			offset++;
+    			length--;
+
+    			int mode = buffer[offset];
     			offset++;
     			length--;
 
@@ -495,7 +525,7 @@ public class sceWlan extends HLEModule {
     			if (ssid != null && ssid.length() > 0) {
     				// Do not overwrite the information for our joined channel
     				if (channel != joinedChannel) {
-    					setChannelSSID(channel, ssid);
+    					setChannelSSID(channel, ssid, mode);
     				}
     			}
     			offset += 32;
@@ -541,9 +571,9 @@ public class sceWlan extends HLEModule {
 			dataOffset += 32;
 			dataLength -= 32;
 
-			if (!ssid.equals(joinedSSID)) {
+			if (joinedChannel >= 0 && !ssid.equals(channelSSIDs[joinedChannel])) {
 				if (log.isDebugEnabled()) {
-					log.debug(String.format("hleWlanReceiveMessage message SSID('%s') not matching the joined SSID('%s')", ssid, joinedSSID));
+					log.debug(String.format("hleWlanReceiveMessage message SSID('%s') not matching the joined SSID('%s')", ssid, channelSSIDs[joinedChannel]));
 				}
 				return packetReceived;
 			}
@@ -663,9 +693,9 @@ public class sceWlan extends HLEModule {
 			dataOffset += 32;
 			dataLength -= 32;
 
-			if (!ssid.equals(joinedSSID)) {
+			if (joinedChannel >= 0 && !ssid.equals(channelSSIDs[joinedChannel])) {
 				if (log.isDebugEnabled()) {
-					log.debug(String.format("hleWlanReceiveGameMode message SSID('%s') not matching the joined SSID('%s')", ssid, joinedSSID));
+					log.debug(String.format("hleWlanReceiveGameMode message SSID('%s') not matching the joined SSID('%s')", ssid, channelSSIDs[joinedChannel]));
 				}
 				return packetReceived;
 			}
@@ -853,6 +883,15 @@ public class sceWlan extends HLEModule {
     				inputLength = 0x50;
     				outputLength = 0x6;
     				break;
+    			case IOCTL_CMD_SET_WEP_KEY:
+    				inputLength = 0xA0;
+    				break;
+    			case IOCTL_CMD_UNKNOWN_0x42:
+    				// Has no input and no output parameters
+    				break;
+    			case IOCTL_CMD_UNKNOWN_0x2:
+    				// Has no input and no output parameters
+    				break;
     		}
     		log.debug(String.format("hleWlanIoctlCallback cmd=0x%X, handleAddr=%s: %s", cmd, handleAddr, handle));
     		if (inputAddr != 0 && Memory.isAddressGood(inputAddr) && inputLength > 0) {
@@ -871,20 +910,20 @@ public class sceWlan extends HLEModule {
 		String ssid;
 		String bssid;
 		int ssidLength;
-		int type;
+		int mode;
 		int channel;
     	switch (cmd) {
     		case IOCTL_CMD_START_SCANNING: // Start scanning
+    			mode = mem.read32(inputAddr + 0);
     			channel = mem.read8(inputAddr + 10);
     			// If scanning only the joined channel, it seems no
     			// scan is really started as all information are available
     			if (channel == joinedChannel && mem.read8(inputAddr + 11) == 0) {
-					ssid = joinedSSID;
 					SceNetWlanScanInfo scanInfo = new SceNetWlanScanInfo();
 					scanInfo.bssid = "Jpcsp";
 					scanInfo.channel = channel;
-					scanInfo.ssid = ssid;
-					scanInfo.type = 2;
+					scanInfo.ssid = channelSSIDs[channel];
+					scanInfo.mode = channelModes[channel];
 					scanInfo.unknown44 = 1000; // Unknown value, need to be != 0
 					scanInfo.write(handleAddr.getMemory(), outputAddr + 4);
 
@@ -897,7 +936,7 @@ public class sceWlan extends HLEModule {
     	    			// in the inputAddr structure.
     	    			ssidLength = mem.read8(inputAddr + 24);
     	    			ssid = Utilities.readStringNZ(mem, inputAddr + 28, ssidLength);
-    					setChannelSSID(channel, ssid);
+    					setChannelSSID(channel, ssid, mode);
     				}
 
 	    			if (createWlanSocket()) {
@@ -910,27 +949,25 @@ public class sceWlan extends HLEModule {
     			channel = mem.read8(inputAddr + 6);
     			ssidLength = mem.read8(inputAddr + 7);
     			ssid = Utilities.readStringNZ(mem, inputAddr + 8, ssidLength);
-    			type = mem.read32(inputAddr + 40);
+    			mode = mem.read32(inputAddr + 40);
     			int unknown44 = mem.read32(inputAddr + 44); // 0x64
     			int unknown62 = mem.read16(inputAddr + 62); // 0x22
     			if (log.isDebugEnabled()) {
-    				log.debug(String.format("hleWlanIoctlCallback cmd=0x%X, channel=%d, ssid='%s', type=0x%X, unknown44=0x%X, unknown62=0x%X", cmd, channel, ssid, type, unknown44, unknown62));
+    				log.debug(String.format("hleWlanIoctlCallback cmd=0x%X, channel=%d, ssid='%s', mode=0x%X, unknown44=0x%X, unknown62=0x%X", cmd, channel, ssid, mode, unknown44, unknown62));
     			}
-    			joinChannelSSID(channel, ssid);
+    			joinChannelSSID(channel, ssid, mode);
 
     			signalSema = false;
     			Emulator.getScheduler().addAction(Scheduler.getNow() + wlanCreateActionDelayUs, new WlanCreateAction(handleAddr));
     			break;
     		case IOCTL_CMD_CONNECT: // Called by sceNetAdhocctlConnect() and sceNetAdhocctlJoin()
     			// Receiving as input the SSID structure returned by cmd=0x34
-    			bssid = Utilities.readStringNZ(mem, inputAddr + 0, 6);
-    			channel = mem.read8(inputAddr + 6);
-    			ssidLength = mem.read8(inputAddr + 7);
-    			ssid = Utilities.readStringNZ(mem, inputAddr + 8, ssidLength);
+    			SceNetWlanScanInfo scanInfo = new SceNetWlanScanInfo();
+    			scanInfo.read(mem, inputAddr);
     			if (log.isDebugEnabled()) {
-    				log.debug(String.format("hleWlanIoctlCallback cmd=0x%X, channel=%d, ssid='%s'", cmd, channel, ssid));
+    				log.debug(String.format("hleWlanIoctlCallback cmd=0x%X, channel=%d, ssid='%s', mode=0x%X", cmd, scanInfo.channel, scanInfo.ssid, scanInfo.mode));
     			}
-    			joinChannelSSID(channel, ssid);
+    			joinChannelSSID(scanInfo.channel, scanInfo.ssid, scanInfo.mode);
 
     			signalSema = false;
     			Emulator.getScheduler().addAction(Scheduler.getNow() + wlanConnectActionDelayUs, new WlanConnectAction(handleAddr));
@@ -938,17 +975,16 @@ public class sceWlan extends HLEModule {
     		case IOCTL_CMD_GET_INFO: // Get joined SSID
     			// Remark: returning the joined SSID in the inputAddr!
     			mem.memset(inputAddr, (byte) 0, 40);
-    			if (joinedChannel > 0) {
+    			if (joinedChannel >= 0) {
         			bssid = "Jpcsp";
         			Utilities.writeStringNZ(mem, inputAddr + 0, 6, bssid);
         			mem.write8(inputAddr + 6, (byte) joinedChannel);
-        			mem.write8(inputAddr + 7, (byte) joinedSSID.length());
-        			Utilities.writeStringNZ(mem, inputAddr + 8, 32, joinedSSID);
+        			mem.write8(inputAddr + 7, (byte) channelSSIDs[joinedChannel].length());
+        			Utilities.writeStringNZ(mem, inputAddr + 8, 32, channelSSIDs[joinedChannel]);
     			}
     			break;
     		case IOCTL_CMD_DISCONNECT: // Disconnect
     			isGameMode = false;
-    			joinedSSID = null;
     			joinedChannel = -1;
 
     			signalSema = false;
@@ -968,6 +1004,24 @@ public class sceWlan extends HLEModule {
     				log.debug(String.format("hleWlanIoctlCallback cmd=0x%X, ssid='%s', multicastMacAddress=%s, macAddress=%s", cmd, ssid, multicastMacAddress, macAddress));
     			}
     			isGameMode = true;
+    			break;
+    		case IOCTL_CMD_SET_WEP_KEY:
+    			int unknown1 = mem.read32(inputAddr + 0); // Always 0
+    			int unknown2 = mem.read32(inputAddr + 4); // Always 1
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("hleWlanIoctlCallback unknown1=0x%X, unknown2=0x%X", unknown1, unknown2));
+    			}
+
+    			int wepKeyAddr = inputAddr + 12;
+    			// 4 times the same data...
+    			for (int i = 0; i < 4; i++) {
+    				mode = mem.read32(wepKeyAddr + 0);
+    				String wepKey = Utilities.readStringNZ(wepKeyAddr + 4, 13);
+    				if (log.isDebugEnabled()) {
+    					log.debug(String.format("hleWlanIoctlCallback cmd=0x%X, wekKey#%d: mode=0x%X, wepKey='%s'", cmd, i, mode, wepKey));
+    				}
+    				wepKeyAddr += 20;
+    			}
     			break;
 			default:
 				log.warn(String.format("hleWlanIoctlCallback unknown cmd=0x%X", cmd));
@@ -1424,26 +1478,36 @@ public class sceWlan extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x5BAA1FE5, version = 150)
-    public int sceWlanDrv_lib_5BAA1FE5() {
+    public int sceWlanDrv_lib_5BAA1FE5(int unknown1, int unknown2) {
         return 0;
     }
 
-    @HLEUnimplemented
+    /**
+     * Checks if a packet has to be dropped according
+     * to the parameters defined by sceNetSetDropRate.
+     * 
+     * @return true if the packet should be dropped
+     *         false if the packet should be processed
+     */
     @HLEFunction(nid = 0x2519EAA7, version = 150)
-    public int sceWlanDrv_driver_2519EAA7() {
+    public boolean sceWlanIsPacketToBeDropped() {
     	// Has no parameters
-        return 0;
+        return false;
     }
 
-    @HLEUnimplemented
     @HLEFunction(nid = 0x325F7172, version = 150)
-    public int sceWlanDrv_driver_325F7172() {
-        return 0;
+    public int sceWlanSetDropRate(int dropRate, int dropDuration) {
+    	wlanDropRate = dropRate;
+    	wlanDropDuration = dropDuration;
+
+    	return 0;
     }
 
-    @HLEUnimplemented
     @HLEFunction(nid = 0xB6A9700D, version = 150)
-    public int sceWlanDrv_driver_B6A9700D() {
-        return 0;
+    public int sceWlanGetDropRate(@CanBeNull TPointer32 dropRateAddr, @CanBeNull TPointer32 dropDurationAddr) {
+    	dropRateAddr.setValue(wlanDropRate);
+    	dropDurationAddr.setValue(wlanDropDuration);
+
+    	return 0;
     }
 }

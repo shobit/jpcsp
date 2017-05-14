@@ -183,6 +183,7 @@ public class ThreadManForUser extends HLEModule {
     private boolean dispatchThreadEnabled;
     private static final int SCE_KERNEL_DISPATCHTHREAD_STATE_DISABLED = 0;
     private static final int SCE_KERNEL_DISPATCHTHREAD_STATE_ENABLED = 1;
+    private static final String rootThreadName = "root";
 
     // The PSP seems to have a resolution of 200us
     protected static final int THREAD_DELAY_MINIMUM_MICROS = 200;
@@ -697,6 +698,16 @@ public class ThreadManForUser extends HLEModule {
         return list.iterator();
     }
 
+    public SceKernelThreadInfo getRootThread(SceModule module) {
+    	for (SceKernelThreadInfo thread : threadMap.values()) {
+    		if (rootThreadName.equals(thread.name) && thread.moduleid == module.modid) {
+    			return thread;
+    		}
+    	}
+
+    	return null;
+    }
+
     /** call this when resetting the emulator
      * @param entry_addr entry from ELF header
      * @param attr from sceModuleInfo ELF section header */
@@ -720,7 +731,7 @@ public class ThreadManForUser extends HLEModule {
         if (module != null && module.module_start_thread_priority > 0) {
             rootInitPriority = module.module_start_thread_priority;
         }
-        SceKernelThreadInfo rootThread = new SceKernelThreadInfo("root", entry_addr, rootInitPriority, rootStackSize, attr, rootMpidStack);
+        SceKernelThreadInfo rootThread = new SceKernelThreadInfo(rootThreadName, entry_addr, rootInitPriority, rootStackSize, attr, rootMpidStack);
         if (log.isDebugEnabled()) {
         	log.debug(String.format("Creating root thread: uid=0x%X, entry=0x%08X, priority=%d, stackSize=0x%X, attr=0x%X", rootThread.uid, entry_addr, rootInitPriority, rootStackSize, attr));
         }
@@ -1251,6 +1262,10 @@ public class ThreadManForUser extends HLEModule {
         return (thread == idle0 || thread == idle1);
     }
 
+    public boolean isIdleThread(int uid) {
+    	return uid == idle0.uid || uid == idle1.uid;
+    }
+
     public boolean isKernelMode() {
     	return currentThread.isKernelMode();
     }
@@ -1755,7 +1770,7 @@ public class ThreadManForUser extends HLEModule {
             }
         } else if (thread.isStopped()) {
             // HACK auto delete module mgr threads
-            if (thread.name.equals("root") || // should probably find the real name and change it
+            if (thread.name.equals(rootThreadName) || // should probably find the real name and change it
                 thread.name.equals("SceModmgrStart") ||
                 thread.name.equals("SceModmgrStop")) {
                 thread.doDelete = true;
@@ -2352,7 +2367,7 @@ public class ThreadManForUser extends HLEModule {
             thread.wait.microTimeTimeout = 0;
             thread.wait.waitTimeoutAction = null;
         } else {
-            if (micros < THREAD_DELAY_MINIMUM_MICROS) {
+            if (micros < THREAD_DELAY_MINIMUM_MICROS && !isIdleThread(thread)) {
             	micros = THREAD_DELAY_MINIMUM_MICROS * 2;
             }
 
@@ -2372,7 +2387,7 @@ public class ThreadManForUser extends HLEModule {
     }
 
     public void hleKernelDelayThread(int uid, int micros, boolean doCallbacks) {
-        if (micros < THREAD_DELAY_MINIMUM_MICROS) {
+        if (micros < THREAD_DELAY_MINIMUM_MICROS && !isIdleThread(uid)) {
         	micros = THREAD_DELAY_MINIMUM_MICROS;
         }
 

@@ -151,6 +151,7 @@ public class scePsmfPlayer extends HLEModule {
     protected SysMemInfo ringbufferMem;
     protected int pmfFileDataRingbufferPosition;
     private static final int MAX_TIMESTAMP_DIFFERENCE = sceMpeg.audioTimestampStep * 2;
+    protected int lastMpegGetAtracAuResult;
 
     public int checkPlayerInitialized(int psmfPlayer) {
     	if (psmfPlayerStatus == PSMF_PLAYER_STATUS_NONE) {
@@ -263,6 +264,9 @@ public class scePsmfPlayer extends HLEModule {
     	int bytesInRingbuffer = packetsInRingbuffer * packetSize;
     	int bytesRemainingInFileData = pmfFileData.length - pmfFileDataRingbufferPosition;
     	int bytesRemaining = bytesRemainingInFileData + bytesInRingbuffer;
+    	if (log.isTraceEnabled()) {
+    		log.trace(String.format("getRemainingFileData packetsInRingbuffer=0x%X, bytesRemainingInFileData=0x%X, bytesRemaining=0x%X", packetsInRingbuffer, bytesRemainingInFileData, bytesRemaining));
+    	}
 
     	return bytesRemaining;
     }
@@ -278,6 +282,7 @@ public class scePsmfPlayer extends HLEModule {
 
         	if (log.isTraceEnabled()) {
         		log.trace(String.format("Filling ringbuffer at 0x%08X, size=0x%X with file data from offset 0x%X", addr, size, pmfFileDataRingbufferPosition));
+        		log.trace(String.format("Ringbuffer putSequentialPackets=%d, file data length=0x%X, position=0x%X", ringbuffer.getPutSequentialPackets(), pmfFileData.length, pmfFileDataRingbufferPosition));
         	}
         	for (int i = 0; i < size; i++) {
         		mem.write8(addr + i, pmfFileData[pmfFileDataRingbufferPosition + i]);
@@ -395,6 +400,8 @@ public class scePsmfPlayer extends HLEModule {
         // Switch to PLAYING.
         psmfPlayerStatus = PSMF_PLAYER_STATUS_PLAYING;
 
+        lastMpegGetAtracAuResult = 0;
+
         return 0;
     }
 
@@ -471,7 +478,7 @@ public class scePsmfPlayer extends HLEModule {
             }
         }
 
-    	if (getCurrentAudioTimestamp() > 0 && getCurrentVideoTimestamp() > 0 && getCurrentVideoTimestamp() > getCurrentAudioTimestamp() + getMaxTimestampDifference()) {
+    	if (getCurrentAudioTimestamp() > 0 && getCurrentVideoTimestamp() > 0 && getCurrentVideoTimestamp() > getCurrentAudioTimestamp() + getMaxTimestampDifference() && lastMpegGetAtracAuResult == 0) {
     		//result = SceKernelErrors.ERROR_PSMFPLAYER_AUDIO_VIDEO_OUT_OF_SYNC;
     		Modules.sceMpegModule.writeLastFrameABGR(displayBuffer, videoDataFrameWidth, videoPixelMode);
     	} else {
@@ -480,9 +487,16 @@ public class scePsmfPlayer extends HLEModule {
 
 	    	// Retrieve the video Au
 	        result = Modules.sceMpegModule.hleMpegGetAvcAu(null);
-
-	    	// Write the video data
-	    	result = Modules.sceMpegModule.hleMpegAvcDecode(displayBuffer, videoDataFrameWidth, videoPixelMode, null, true, TPointer.NULL);
+	        if (result < 0) {
+	        	// We have reached the end of the file...
+	        	if (pmfFileDataRingbufferPosition >= pmfFileData.length) {
+	                SceMpegRingbuffer ringbuffer = Modules.sceMpegModule.getMpegRingbuffer();
+	                ringbuffer.consumeAllPackets();
+	        	}
+	        } else {
+	        	// Write the video data
+	        	result = Modules.sceMpegModule.hleMpegAvcDecode(displayBuffer, videoDataFrameWidth, videoPixelMode, null, true, TPointer.NULL);
+	        }
     	}
 
         // Do not cache the video image as a texture in the VideoEngine to allow fluid rendering
@@ -511,7 +525,7 @@ public class scePsmfPlayer extends HLEModule {
     		return result;
     	}
 
-    	if (getCurrentAudioTimestamp() > 0 && getCurrentVideoTimestamp() > 0 && getCurrentAudioTimestamp() > getCurrentVideoTimestamp() + getMaxTimestampDifference()) {
+    	if (getCurrentAudioTimestamp() > 0 && getCurrentVideoTimestamp() > 0 && getCurrentAudioTimestamp() > getCurrentVideoTimestamp() + getMaxTimestampDifference() && lastMpegGetAtracAuResult == 0) {
     		result = SceKernelErrors.ERROR_PSMFPLAYER_AUDIO_VIDEO_OUT_OF_SYNC;
     	} else {
 	        // Check if the ringbuffer needs additional data
@@ -519,6 +533,7 @@ public class scePsmfPlayer extends HLEModule {
 
 	    	// Retrieve the audio Au
 	        result = Modules.sceMpegModule.hleMpegGetAtracAu(null);
+	        lastMpegGetAtracAuResult = result;
 
 	    	// Write the audio data
 	    	result = Modules.sceMpegModule.hleMpegAtracDecode(null, audioDataAddr, audioSamplesBytes);

@@ -73,22 +73,30 @@ import org.apache.log4j.Logger;
 public class ModuleMgrForUser extends HLEModule {
     public static Logger log = Modules.getLogger("ModuleMgrForUser");
 
-    // Modules that should never be loaded
-    // (include here only modules not described in HLEModuleManager)
-    enum bannedModulesList {
-        audiocodec,
-        sceAudiocodec_Driver,
-        videocodec,
-        sceVideocodec_Driver,
-        mpegbase,
-        sceMpegbase_Driver,
-        pspnet_adhoc_download,
-        pspnet_adhoc_auth,
-        pspnet_ap_dialog_dummy,
-        sceNetApDialogDummy_Library,
-        libparse_uri,
-        libparse_http,
-        memab
+    public static class LoadModuleContext {
+        public String fileName;
+        public String moduleName;
+        public int flags;
+        public int uid;
+        public int buffer;
+        public int bufferSize;
+        public SceKernelLMOption lmOption;
+        public boolean byUid;
+        public boolean needModuleInfo;
+        public boolean allocMem;
+        public int baseAddr;
+        public int basePartition;
+        public SceKernelThreadInfo thread;
+        public ByteBuffer moduleBuffer;
+
+        public LoadModuleContext() {
+        	basePartition = SysMemUserForUser.USER_PARTITION_ID;
+        }
+
+		@Override
+		public String toString() {
+			return String.format("fileName='%s', moduleName='%s'", fileName, moduleName);
+		}
     }
 
     public static final int loadHLEModuleDelay = 50000; // 50 ms delay
@@ -106,200 +114,119 @@ public class ModuleMgrForUser extends HLEModule {
 	}
 
 	private class LoadModuleAction implements IAction {
-		private SceKernelThreadInfo thread;
-		private String name;
-		private int flags;
-		private int uid;
-		private int buffer;
-		private int bufferSize;
-		private SceKernelLMOption lmOption;
-		private boolean byUid;
-		private boolean needModuleInfo;
-		private boolean allocMem;
-		private int baseAddr;
+		private LoadModuleContext loadModuleContext;
 
-		public LoadModuleAction(SceKernelThreadInfo thread, String name, int flags, int uid, int buffer, int bufferSize, SceKernelLMOption lmOption, boolean byUid, boolean needModuleInfo, boolean allocMem, int baseAddr) {
-			this.thread = thread;
-			this.name = name;
-			this.flags = flags;
-			this.uid = uid;
-			this.buffer = buffer;
-			this.bufferSize = bufferSize;
-			this.lmOption = lmOption;
-			this.byUid = byUid;
-			this.needModuleInfo = needModuleInfo;
-			this.allocMem = allocMem;
-			this.baseAddr = baseAddr;
+		public LoadModuleAction(LoadModuleContext loadModuleContext) {
+			this.loadModuleContext = loadModuleContext;
 		}
 
 		@Override
 		public void execute() {
-			hleKernelLoadModule(thread, name, flags, uid, buffer, bufferSize, lmOption, byUid, needModuleInfo, allocMem, baseAddr);
+			hleKernelLoadModuleNow(loadModuleContext);
 		}
 	}
 
-	//
-    // When an HLE module is loaded using sector syntax, with no file corresponding to the
-    // referenced sector, try searching for the real module's name inside the file itself.
-    // For encrypted modules, the real name can be found in the first sector of the file.
-    // This name is not encrypted.
-    //
-    // For example:
-    //   MONSTER HUNTER FREEDOM UNITE ULES01213
-    //     hleKernelLoadModule(path='disc0:/sce_lbn0x11981_size0x59c0')
-    //   and the sector 0x11981 is found inside a huge "DATA.BIN" file (a CD image):
-    //     PSP_GAME/USRDIR/DATA.BIN: Starting at sector 0xD960, with size 737 MB
-    //
-    private String extractHLEModuleName(String path) {
-        String result = "UNKNOWN";
-        String sectorString = path.substring(path.indexOf("sce_lbn") + 7, path.indexOf("_size"));
-        int PRXStartSector = (int) Utilities.parseHexLong(sectorString, true);
-
-        try {
-            byte[] buffer = Modules.IoFileMgrForUserModule.getIsoReader().readSector(PRXStartSector);
-            String libName = new String(buffer);
-            int indexSce = libName.indexOf("sce");
-            int indexSpace = libName.indexOf(" ");
-            if (indexSce >= 0 && indexSpace > indexSce) {
-                String module = libName.substring(indexSce, indexSpace);
-                // Compare with known names and assign the real name for this module.
-                if (module.startsWith("sceFont")) {
-                    result = "libfont";
-                } else if (module.startsWith("sceMpeg")) {
-                    result = "mpeg";
-                } else if (module.startsWith("sceSAScore")) {
-                    result = "sc_sascore";
-                } else if (module.startsWith("sceATRAC3plus")) {
-                    result = "libatrac3plus";
-                }
-            }
-        } catch (IOException ioe) {
-            // Sector doesn't exist...
-        }
-        return result;
-    }
-
-    private int loadHLEModule(String name, String prxname) {
+    private int hleKernelLoadHLEModule(LoadModuleContext loadModuleContext) {
+    	String fileName = loadModuleContext.fileName;
         HLEModuleManager moduleManager = HLEModuleManager.getInstance();
 
-        // Check if this an HLE module
-        if (moduleManager.hasFlash0Module(prxname)) {
-        	if (log.isInfoEnabled()) {
-        		log.info(String.format("hleKernelLoadModule(path='%s') HLE module %s loaded", name, prxname));
-        	}
-            return moduleManager.LoadFlash0Module(prxname);
-        }
-
-        // Ban some modules
-        for (bannedModulesList bannedModuleName : bannedModulesList.values()) {
-            if (bannedModuleName.name().equalsIgnoreCase(prxname)) {
-                log.warn(String.format("IGNORED:hleKernelLoadModule(path='%s'): module %s from banlist not loaded", name , prxname));
-                return moduleManager.LoadFlash0Module(prxname);
-            }
-        }
-
-        return -1;
-    }
-
-    private int hleKernelLoadHLEModule(String name, StringBuilder prxname) {
-        HLEModuleManager moduleManager = HLEModuleManager.getInstance();
-
-        if (prxname == null) {
-            prxname = new StringBuilder();
-        }
-
-        // Extract the PRX name from the file name
-        int findprx = name.lastIndexOf("/");
-        int endprx = name.toLowerCase().indexOf(".prx");
-        if (endprx >= 0) {
-            prxname.append(name.substring(findprx + 1, endprx));
-        } else if (name.contains("sce_lbn")) {
-            prxname.append(extractHLEModuleName(name));
+        // Extract the module name from the file name
+        int startPrx = fileName.lastIndexOf("/");
+        int endPrx = fileName.toLowerCase().indexOf(".prx");
+        if (endPrx >= 0) {
+        	loadModuleContext.moduleName = fileName.substring(startPrx + 1, endPrx);
         } else {
-            prxname.append("UNKNOWN");
+        	loadModuleContext.moduleName = fileName;
         }
 
-        // Ban flash0 modules
-        if (name.startsWith("flash0:")) {
+        if (!moduleManager.hasFlash0Module(loadModuleContext.moduleName)) {
+        	// Retrieve the module name from the file content
+        	// if it could not be guessed from the file name.
+        	getModuleNameFromFileContent(loadModuleContext);
+        }
+
+        // Check if the module is not overwritten
+        // by a file located under flash0 (decrypted from a real PSP).
+        String modulePrxFileName = moduleManager.getModulePrxFileName(loadModuleContext.moduleName);
+        if (modulePrxFileName != null) {
         	StringBuilder localFileName = new StringBuilder();
-        	IVirtualFileSystem vfs = Modules.IoFileMgrForUserModule.getVirtualFileSystem(name, localFileName);
+        	IVirtualFileSystem vfs = Modules.IoFileMgrForUserModule.getVirtualFileSystem(modulePrxFileName, localFileName);
         	if (vfs.ioGetstat(localFileName.toString(), new SceIoStat()) == 0) {
         		// The flash0 file is available, load it
+        		loadModuleContext.fileName = modulePrxFileName;
         		return -1;
         	}
-
-        	log.warn("IGNORED:hleKernelLoadModule(path='" + name + "'): module from flash0 not loaded");
-    		return moduleManager.LoadFlash0Module(prxname.toString());
         }
 
         // Check if the PRX name matches an HLE module
-        int result = loadHLEModule(name, prxname.toString());
-        if (result >= 0) {
-        	return result;
+        if (moduleManager.hasFlash0Module(loadModuleContext.moduleName)) {
+        	if (log.isInfoEnabled()) {
+        		log.info(String.format("hleKernelLoadModule(path='%s') HLE module %s loaded", loadModuleContext.fileName, loadModuleContext.moduleName));
+        	}
+            return moduleManager.LoadFlash0Module(loadModuleContext.moduleName);
         }
-
-        // Extract the library name from the file itself
-        // for files in "~SCE"/"~PSP" format.
-        SeekableDataInput moduleInput = Modules.IoFileMgrForUserModule.getFile(name, IoFileMgrForUser.PSP_O_RDONLY);
-    	result = detectHleModule(name, prxname, moduleInput);
-    	if (moduleInput != null) {
-    		try {
-				moduleInput.close();
-			} catch (IOException e) {
-			}
-    	}
-    	if (result >= 0) {
-    		return result;
-    	}
 
         return -1;
     }
 
-    private int detectHleModule(String name, StringBuilder prxname, SeekableDataInput file) {
-    	int result = -1;
+    private void getModuleNameFromFileContent(LoadModuleContext loadModuleContext) {
+    	// Extract the library name from the file itself
+        // for files in "~SCE"/"~PSP" format.
+        SeekableDataInput file;
+        if (loadModuleContext.byUid) {
+        	file = Modules.IoFileMgrForUserModule.getFile(loadModuleContext.uid);
+        } else {
+        	file = Modules.IoFileMgrForUserModule.getFile(loadModuleContext.fileName, IoFileMgrForUser.PSP_O_RDONLY);
+        }
 
     	if (file == null) {
-    		return result;
+    		return;
     	}
 
     	final int sceHeaderLength = 0x40;
-    	byte[] header = new byte[sceHeaderLength + 100];
+    	byte[] header = new byte[sceHeaderLength + PSP.PSP_HEADER_SIZE];
     	try {
         	long position = file.getFilePointer();
     		file.readFully(header);
     		file.seek(position);
 
     		ByteBuffer f = ByteBuffer.wrap(header);
-    		int sceMagic = Utilities.readWord(f);
-    		if (sceMagic == Loader.SCE_MAGIC) {
+
+    		// Skip an optional "~SCE" header
+    		int magic = Utilities.readWord(f);
+    		if (magic == Loader.SCE_MAGIC) {
     			f.position(sceHeaderLength);
-    			int pspMagic = Utilities.readWord(f);
-    			if (pspMagic == PSP.PSP_MAGIC) {
-    				f.position(f.position() + 6);
-    				String libName = Utilities.readStringZ(f);
-    				if (libName != null && libName.length() > 0) {
-    					// We could extract the library name from the file,
-    					// check if it matches an HLE module
-    					result = loadHLEModule(name, libName);
-    					if (result >= 0) {
-    						if (prxname != null) {
-    							prxname.setLength(0);
-    							prxname.append(libName);
-    						}
-    						return result;
-    					}
-    				}
-    			}
+    		} else {
+    			f.position(0);
     		}
+
+    		// Retrieve the library name from the "~PSP" header
+    		PSP psp = new PSP(f);
+			if (psp.isValid()) {
+				String libName = psp.getModname();
+				if (libName != null && libName.length() > 0) {
+					// We could extract the library name from the file
+					loadModuleContext.moduleName = libName;
+					if (log.isDebugEnabled()) {
+						log.debug(String.format("getModuleNameFromFileContent %s", loadModuleContext));
+					}
+				}
+			}
 		} catch (IOException e) {
 			// Ignore exception
 		}
 
-    	return result;
+    	if (!loadModuleContext.byUid) {
+    		try {
+				file.close();
+			} catch (IOException e) {
+			}
+    	}
     }
 
-    public int hleKernelLoadModule(String name, int flags, int uid, int buffer, int bufferSize, SceKernelLMOption lmOption, boolean byUid, boolean needModuleInfo, boolean allocMem, int baseAddr) {
-    	IAction delayedLoadModule = new LoadModuleAction(Modules.ThreadManForUserModule.getCurrentThread(), name, flags, uid, buffer, bufferSize, lmOption, byUid, needModuleInfo, allocMem, baseAddr);
+    public int hleKernelLoadModule(LoadModuleContext loadModuleContext) {
+    	loadModuleContext.thread = Modules.ThreadManForUserModule.getCurrentThread();
+    	IAction delayedLoadModule = new LoadModuleAction(loadModuleContext);
 
     	Modules.ThreadManForUserModule.getCurrentThread().wait.Io_id = -1;
     	Modules.ThreadManForUserModule.hleBlockCurrentThread(SceKernelThreadInfo.JPCSP_WAIT_IO);
@@ -308,36 +235,40 @@ public class ModuleMgrForUser extends HLEModule {
     	return 0;
     }
 
-    public int hleKernelLoadAndStartModule(String name, int flags, int uid, int buffer, int bufferSize, SceKernelLMOption lmOption, boolean byUid, boolean needModuleInfo, boolean allocMem, int baseAddr, int argSize, TPointer argPp, TPointer startOptions) {
-    	SceKernelThreadInfo thread = Modules.ThreadManForUserModule.getCurrentThread();
-    	int moduleUid = hleKernelLoadModule(thread, name, flags, uid, buffer, bufferSize, lmOption, byUid, needModuleInfo, allocMem, baseAddr);
-    	hleKernelStartModule(moduleUid, 0, TPointer.NULL, TPointer32.NULL, startOptions, false);
+    public int hleKernelLoadAndStartModule(String name, int startPriority) {
+    	LoadModuleContext loadModuleContext = new LoadModuleContext();
+    	loadModuleContext.fileName = name;
+    	loadModuleContext.allocMem = true;
+    	loadModuleContext.thread = Modules.ThreadManForUserModule.getCurrentThread();
+
+    	int moduleUid = hleKernelLoadModuleNow(loadModuleContext);
+
+    	if (moduleUid >= 0) {
+        	if (startOptionsMem == null) {
+            	final int startOptionsSize = 20;
+            	startOptionsMem = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.KERNEL_PARTITION_ID, "ModuleStartOptions", SysMemUserForUser.PSP_SMEM_Low, startOptionsSize, 0);
+            	startOptions = new TPointer(Memory.getInstance(), startOptionsMem.addr);
+            	startOptions.setValue32(startOptionsSize);
+        	}
+
+	    	SceKernelSMOption sceKernelSMOption = new SceKernelSMOption();
+	    	sceKernelSMOption.mpidStack = 0;
+	    	sceKernelSMOption.stackSize = 0;
+	    	sceKernelSMOption.attribute = 0;
+	    	sceKernelSMOption.priority = startPriority;
+	    	sceKernelSMOption.write(startOptions);
+
+	    	hleKernelStartModule(moduleUid, 0, TPointer.NULL, TPointer32.NULL, startOptions, false);
+    	}
 
     	return moduleUid;
     }
 
-    public int hleKernelLoadAndStartModule(String name, int startPriority) {
-    	if (startOptionsMem == null) {
-        	final int startOptionsSize = 20;
-        	startOptionsMem = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.KERNEL_PARTITION_ID, "ModuleStartOptions", SysMemUserForUser.PSP_SMEM_Low, startOptionsSize, 0);
-        	startOptions = new TPointer(Memory.getInstance(), startOptionsMem.addr);
-        	startOptions.setValue32(startOptionsSize);
-    	}
-
-    	SceKernelSMOption sceKernelSMOption = new SceKernelSMOption();
-    	sceKernelSMOption.mpidStack = 0;
-    	sceKernelSMOption.stackSize = 0;
-    	sceKernelSMOption.attribute = 0;
-    	sceKernelSMOption.priority = startPriority;
-    	sceKernelSMOption.write(startOptions);
-    	return hleKernelLoadAndStartModule(name, 0, 0, 0, 0, null, false, false, true, 0, 0, TPointer.NULL, startOptions);
-    }
-
-    private int hleKernelLoadModule(SceKernelThreadInfo thread, String name, int flags, int uid, int buffer, int bufferSize, SceKernelLMOption lmOption, boolean byUid, boolean needModuleInfo, boolean allocMem, int baseAddr) {
-    	int result = delayedKernelLoadModule(name, flags, uid, buffer, bufferSize, lmOption, byUid, needModuleInfo, allocMem, baseAddr);
-    	if (thread != null) {
-    		thread.cpuContext._v0 = result;
-    		Modules.ThreadManForUserModule.hleUnblockThread(thread.uid);
+    private int hleKernelLoadModuleNow(LoadModuleContext loadModuleContext) {
+    	int result = delayedKernelLoadModule(loadModuleContext);
+    	if (loadModuleContext.thread != null) {
+    		loadModuleContext.thread.cpuContext._v0 = result;
+    		Modules.ThreadManForUserModule.hleUnblockThread(loadModuleContext.thread.uid);
     	}
 
     	return result;
@@ -363,7 +294,7 @@ public class ModuleMgrForUser extends HLEModule {
     	return module.loadAddressHigh - module.loadAddressLow;
     }
 
-    private int hleKernelLoadModule(String name, StringBuilder prxname, ByteBuffer moduleBuffer, SceKernelLMOption lmOption, boolean needModuleInfo, boolean allocMem, int baseAddr) throws IOException {
+    private int hleKernelLoadModuleFromModuleBuffer(LoadModuleContext loadModuleContext) throws IOException {
     	int result;
 
         int moduleBase;
@@ -371,26 +302,26 @@ public class ModuleMgrForUser extends HLEModule {
         int mpidData;
         SysMemInfo moduleInfo = null;
 
-        if (allocMem) {
-	        mpidText = lmOption != null && lmOption.mpidText != 0 ? lmOption.mpidText : SysMemUserForUser.USER_PARTITION_ID;
-	        mpidData = lmOption != null && lmOption.mpidData != 0 ? lmOption.mpidData : SysMemUserForUser.USER_PARTITION_ID;
-	        final int allocType = lmOption != null ? lmOption.position : SysMemUserForUser.PSP_SMEM_Low;
+        if (loadModuleContext.allocMem) {
+	        mpidText = loadModuleContext.lmOption != null && loadModuleContext.lmOption.mpidText != 0 ? loadModuleContext.lmOption.mpidText : SysMemUserForUser.USER_PARTITION_ID;
+	        mpidData = loadModuleContext.lmOption != null && loadModuleContext.lmOption.mpidData != 0 ? loadModuleContext.lmOption.mpidData : SysMemUserForUser.USER_PARTITION_ID;
+	        final int allocType = loadModuleContext.lmOption != null ? loadModuleContext.lmOption.position : SysMemUserForUser.PSP_SMEM_Low;
 	        final int moduleHeaderSize = 256;
 
 	        // Load the module in analyze mode to find out its required memory size
-	        SceModule testModule = getModuleInfo(name, moduleBuffer, mpidText, mpidData);
+	        SceModule testModule = getModuleInfo(loadModuleContext.fileName, loadModuleContext.moduleBuffer, mpidText, mpidData);
 	        int totalAllocSize = moduleHeaderSize + getModuleRequiredMemorySize(testModule);
 	        if (log.isDebugEnabled()) {
-	        	log.debug(String.format("Module '%s' requires %d bytes memory", name, totalAllocSize));
+	        	log.debug(String.format("Module '%s' requires %d bytes memory", loadModuleContext.fileName, totalAllocSize));
 	        }
 
 	        // Take the partition IDs from the module information, if available
-	        if (lmOption == null || lmOption.mpidText == 0) {
+	        if (loadModuleContext.lmOption == null || loadModuleContext.lmOption.mpidText == 0) {
 	        	if (testModule.mpidtext != 0) {
 	        		mpidText = testModule.mpidtext;
 	        	}
 	        }
-	        if (lmOption == null || lmOption.mpidData == 0) {
+	        if (loadModuleContext.lmOption == null || loadModuleContext.lmOption.mpidData == 0) {
 	        	if (testModule.mpiddata != 0) {
 	        		mpidData = testModule.mpiddata;
 	        	}
@@ -398,7 +329,7 @@ public class ModuleMgrForUser extends HLEModule {
 
 	        SysMemInfo testInfo = Modules.SysMemUserForUserModule.malloc(mpidText, "ModuleMgr-TestInfo", allocType, totalAllocSize, 0);
 	        if (testInfo == null) {
-	            log.error(String.format("Failed module allocation of size 0x%08X for '%s' (maxFreeMemSize=0x%08X)", totalAllocSize, name, Modules.SysMemUserForUserModule.maxFreeMemSize(mpidText)));
+	            log.error(String.format("Failed module allocation of size 0x%08X for '%s' (maxFreeMemSize=0x%08X)", totalAllocSize, loadModuleContext.fileName, Modules.SysMemUserForUserModule.maxFreeMemSize(mpidText)));
 	            return -1;
 	        }
 	        int testBase = testInfo.addr;
@@ -406,14 +337,14 @@ public class ModuleMgrForUser extends HLEModule {
 
 	        // Allocate the memory for the memory header itself,
 	        // the space required by the module will be allocated by the Loader.
-	        if (needModuleInfo) {
+	        if (loadModuleContext.needModuleInfo) {
 	        	moduleInfo = Modules.SysMemUserForUserModule.malloc(mpidText, "ModuleMgr", SysMemUserForUser.PSP_SMEM_Addr, moduleHeaderSize, testBase);
 	            if (moduleInfo == null) {
-	                log.error(String.format("Failed module allocation 0x%08X != null for '%s'", testBase, name));
+	                log.error(String.format("Failed module allocation 0x%08X != null for '%s'", testBase, loadModuleContext.fileName));
 	                return -1;
 	            }
 	            if (moduleInfo.addr != testBase) {
-	                log.error(String.format("Failed module allocation 0x%08X != 0x%08X for '%s'", testBase, moduleInfo.addr, name));
+	                log.error(String.format("Failed module allocation 0x%08X != 0x%08X for '%s'", testBase, moduleInfo.addr, loadModuleContext.fileName));
 	                return -1;
 	            }
 	            moduleBase = moduleInfo.addr + moduleHeaderSize;
@@ -421,21 +352,21 @@ public class ModuleMgrForUser extends HLEModule {
 	        	moduleBase = testBase;
 	        }
     	} else {
-    		moduleBase = baseAddr;
-    		mpidText = -1;
-    		mpidData = -1;
+    		moduleBase = loadModuleContext.baseAddr;
+    		mpidText = loadModuleContext.basePartition;
+    		mpidData = loadModuleContext.basePartition;
     	}
 
         // Load the module
-    	SceModule module = Loader.getInstance().LoadModule(name, moduleBuffer, moduleBase, mpidText, mpidData, false, allocMem, true);
+    	SceModule module = Loader.getInstance().LoadModule(loadModuleContext.fileName, loadModuleContext.moduleBuffer, moduleBase, mpidText, mpidData, false, loadModuleContext.allocMem, true);
         module.load();
 
         if ((module.fileFormat & Loader.FORMAT_SCE) == Loader.FORMAT_SCE ||
                 (module.fileFormat & Loader.FORMAT_PSP) == Loader.FORMAT_PSP) {
             // Simulate a successful loading
-            log.info("hleKernelLoadModule(path='" + name + "') encrypted module not loaded");
+            log.info("hleKernelLoadModule(path='" + loadModuleContext.fileName + "') encrypted module not loaded");
             SceModule fakeModule = new SceModule(true);
-            fakeModule.modname = prxname.toString();
+            fakeModule.modname = loadModuleContext.moduleName.toString();
         	fakeModule.addAllocatedMemory(moduleInfo);
             if (moduleInfo != null) {
                 fakeModule.write(Memory.getInstance(), moduleInfo.addr);
@@ -456,9 +387,8 @@ public class ModuleMgrForUser extends HLEModule {
         return result;
     }
 
-    private int delayedKernelLoadModule(String name, int flags, int uid, int buffer, int bufferSize, SceKernelLMOption lmOption, boolean byUid, boolean needModuleInfo, boolean allocMem, int baseAddr) {
-        StringBuilder prxname = new StringBuilder();
-        int result = hleKernelLoadHLEModule(name, prxname);
+    private int delayedKernelLoadModule(LoadModuleContext loadModuleContext) {
+        int result = hleKernelLoadHLEModule(loadModuleContext);
         if (result >= 0) {
         	Modules.ThreadManForUserModule.hleKernelDelayThread(loadHLEModuleDelay, false);
             return result;
@@ -466,22 +396,26 @@ public class ModuleMgrForUser extends HLEModule {
 
         // Load module as ELF
         try {
-        	ByteBuffer moduleBuffer = null;
-        	if (buffer != 0) {
-        		byte[] bytes = new byte[bufferSize];
-        		IMemoryReader memoryReader = MemoryReader.getMemoryReader(buffer, bufferSize, 1);
-        		for (int i = 0; i < bufferSize; i++) {
+        	loadModuleContext.moduleBuffer = null;
+        	if (loadModuleContext.buffer != 0) {
+        		byte[] bytes = new byte[loadModuleContext.bufferSize];
+        		IMemoryReader memoryReader = MemoryReader.getMemoryReader(loadModuleContext.buffer, loadModuleContext.bufferSize, 1);
+        		for (int i = 0; i < loadModuleContext.bufferSize; i++) {
         			bytes[i] = (byte) memoryReader.readNext();
         		}
-        		moduleBuffer = ByteBuffer.wrap(bytes);
+        		loadModuleContext.moduleBuffer = ByteBuffer.wrap(bytes);
         	} else {
-                SeekableDataInput moduleInput = Modules.IoFileMgrForUserModule.getFile(name, flags);
+        		// TODO we need to properly handle the loading byUid (sceKernelLoadModuleByID)
+        		// where the module to be loaded is only a part of a big file.
+        		// We currently assume that the file contains only the module to be loaded.
+                SeekableDataInput moduleInput = Modules.IoFileMgrForUserModule.getFile(loadModuleContext.fileName, loadModuleContext.flags);
                 if (moduleInput != null) {
                     if (moduleInput instanceof UmdIsoFile) {
                         UmdIsoFile umdIsoFile = (UmdIsoFile) moduleInput;
                         String realFileName = umdIsoFile.getName();
-                        if (realFileName != null && !name.endsWith(realFileName)) {
-                            result = hleKernelLoadHLEModule(realFileName, null);
+                        if (realFileName != null && !loadModuleContext.fileName.endsWith(realFileName)) {
+                        	loadModuleContext.fileName = realFileName;
+                            result = hleKernelLoadHLEModule(loadModuleContext);
                             if (result >= 0) {
                                 moduleInput.close();
                                 return result;
@@ -492,18 +426,18 @@ public class ModuleMgrForUser extends HLEModule {
                     byte[] moduleBytes = new byte[(int) moduleInput.length()];
                     moduleInput.readFully(moduleBytes);
                     moduleInput.close();
-                    moduleBuffer = ByteBuffer.wrap(moduleBytes);
+                    loadModuleContext.moduleBuffer = ByteBuffer.wrap(moduleBytes);
                 }
         	}
 
-        	if (moduleBuffer != null) {
-                result = hleKernelLoadModule(name, prxname, moduleBuffer, lmOption, needModuleInfo, allocMem, baseAddr);
+        	if (loadModuleContext.moduleBuffer != null) {
+                result = hleKernelLoadModuleFromModuleBuffer(loadModuleContext);
             } else {
-                log.warn(String.format("hleKernelLoadModule(path='%s') can't find file", name));
+                log.warn(String.format("hleKernelLoadModule(path='%s') can't find file", loadModuleContext.fileName));
                 return ERROR_ERRNO_FILE_NOT_FOUND;
             }
         } catch (IOException e) {
-            log.error(String.format("hleKernelLoadModule - Error while loading module %s", name), e);
+            log.error(String.format("hleKernelLoadModule - Error while loading module %s", loadModuleContext.fileName), e);
             return -1;
         }
 
@@ -668,7 +602,6 @@ public class ModuleMgrForUser extends HLEModule {
     @HLEFunction(nid = 0xB7F46618, version = 150, checkInsideInterrupt = true)
     public int sceKernelLoadModuleByID(int uid, @CanBeNull TPointer optionAddr) {
         String name = Modules.IoFileMgrForUserModule.getFileFilename(uid);
-        SeekableDataInput file = Modules.IoFileMgrForUserModule.getFile(uid);
 
         if (log.isDebugEnabled()) {
             log.debug(String.format("sceKernelLoadModuleByID name='%s'", name));
@@ -683,12 +616,15 @@ public class ModuleMgrForUser extends HLEModule {
             }
         }
 
-        int result = detectHleModule(name, null, file);
-        if (result >= 0) {
-        	return result;
-        }
+        LoadModuleContext loadModuleContext = new LoadModuleContext();
+        loadModuleContext.fileName = name;
+        loadModuleContext.uid = uid;
+        loadModuleContext.lmOption = lmOption;
+        loadModuleContext.byUid = true;
+        loadModuleContext.needModuleInfo = true;
+        loadModuleContext.allocMem = true;
 
-        return hleKernelLoadModule(name, 0, uid, 0, 0, lmOption, true, true, true, 0);
+        return hleKernelLoadModule(loadModuleContext);
     }
 
     @HLEFunction(nid = 0x977DE386, version = 150, checkInsideInterrupt = true)
@@ -702,7 +638,14 @@ public class ModuleMgrForUser extends HLEModule {
             }
         }
 
-        return hleKernelLoadModule(path.getString(), flags, 0, 0, 0, lmOption, false, true, true, 0);
+        LoadModuleContext loadModuleContext = new LoadModuleContext();
+        loadModuleContext.fileName = path.getString();
+        loadModuleContext.flags = flags;
+        loadModuleContext.lmOption = lmOption;
+        loadModuleContext.needModuleInfo = true;
+        loadModuleContext.allocMem = true;
+
+        return hleKernelLoadModule(loadModuleContext);
     }
 
     @HLEUnimplemented
@@ -994,7 +937,13 @@ public class ModuleMgrForUser extends HLEModule {
             }
         }
 
-        return hleKernelLoadModule(path.getString(), flags, 0, 0, 0, lmOption, false, false, true, 0);
+        LoadModuleContext loadModuleContext = new LoadModuleContext();
+        loadModuleContext.fileName = path.getString();
+        loadModuleContext.flags = flags;
+        loadModuleContext.lmOption = lmOption;
+        loadModuleContext.allocMem = true;
+
+        return hleKernelLoadModule(loadModuleContext);
     }
 
     /**
@@ -1102,7 +1051,14 @@ public class ModuleMgrForUser extends HLEModule {
             return SceKernelErrors.ERROR_NPDRM_INVALID_PERM;
         }
 
-        return hleKernelLoadModule(path.getString(), flags, 0, 0, 0, lmOption, false, true, true, 0);
+        LoadModuleContext loadModuleContext = new LoadModuleContext();
+        loadModuleContext.fileName = path.getString();
+        loadModuleContext.flags = flags;
+        loadModuleContext.lmOption = lmOption;
+        loadModuleContext.needModuleInfo = true;
+        loadModuleContext.allocMem = true;
+
+        return hleKernelLoadModule(loadModuleContext);
     }
 
     @HLEUnimplemented

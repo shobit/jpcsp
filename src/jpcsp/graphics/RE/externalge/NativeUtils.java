@@ -16,15 +16,12 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.graphics.RE.externalge;
 
-import static jpcsp.Allegrex.compiler.RuntimeContext.memoryInt;
-
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.util.LinkedList;
 import java.util.List;
 
-import jpcsp.Memory;
-import jpcsp.memory.FastMemory;
+import jpcsp.Allegrex.compiler.RuntimeContext;
 import jpcsp.util.DurationStatistics;
 import jpcsp.util.NativeCpuInfo;
 import jpcsp.util.Utilities;
@@ -93,9 +90,7 @@ public class NativeUtils {
 					libraryExisting = true;
 					try {
 						System.loadLibrary(library);
-						if (Memory.getInstance() instanceof FastMemory) {
-							memoryInt = ((FastMemory) Memory.getInstance()).getAll();
-						}
+						RuntimeContext.updateMemory();
 						initNative();
 						log.info(String.format("Loaded %s library", library));
 						isAvailable = true;
@@ -130,6 +125,7 @@ public class NativeUtils {
     		return;
     	}
 
+    	int[] memoryInt = RuntimeContext.getMemoryInt();
 		memoryInt[0] = 0x12345678;
 		int x = unsafe.getInt(memoryIntAddress);
 		if (x != memoryInt[0]) {
@@ -142,7 +138,7 @@ public class NativeUtils {
 
     @SuppressWarnings("unused")
 	public static long getMemoryUnsafeAddr() {
-    	if (!ExternalGE.useUnsafe || memoryInt == null) {
+    	if (!ExternalGE.useUnsafe || !RuntimeContext.hasMemoryInt()) {
     		return 0L;
     	}
 
@@ -152,7 +148,7 @@ public class NativeUtils {
 				if (f != null) {
 			    	f.setAccessible(true);
 			    	unsafe = (Unsafe) f.get(null);
-			    	intArrayBaseOffset = unsafe.arrayBaseOffset(memoryInt.getClass());
+			    	intArrayBaseOffset = unsafe.arrayBaseOffset(RuntimeContext.getMemoryInt().getClass());
 			    	arrayObjectBaseOffset = unsafe.arrayBaseOffset(arrayObject.getClass());
 			    	arrayObjectIndexScale = unsafe.arrayIndexScale(arrayObject.getClass());
 			    	addressSize = unsafe.addressSize();
@@ -187,7 +183,7 @@ public class NativeUtils {
     		return 0L;
     	}
 
-    	arrayObject[0] = memoryInt;
+    	arrayObject[0] = RuntimeContext.getMemoryInt();
     	long address = 0L;
     	if (addressSize == 4) {
     		address = unsafe.getInt(arrayObject, arrayObjectBaseOffset);
@@ -213,6 +209,7 @@ public class NativeUtils {
 
     	if (false) {
 	    	// Perform a self-test
+	    	int[] memoryInt = RuntimeContext.getMemoryInt();
 	    	int testValue = 0x12345678;
 	    	int originalValue = memoryInt[0];
 	    	memoryInt[0] = testValue;

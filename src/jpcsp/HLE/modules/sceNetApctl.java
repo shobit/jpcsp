@@ -18,6 +18,7 @@ package jpcsp.HLE.modules;
 
 import static jpcsp.HLE.modules.sceNetAdhocctl.IBSS_NAME_LENGTH;
 import static jpcsp.HLE.modules.sceNetAdhocctl.fillNextPointersInLinkedList;
+import jpcsp.HLE.BufferInfo;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
@@ -34,6 +35,7 @@ import java.util.HashMap;
 import org.apache.log4j.Logger;
 
 import jpcsp.HLE.Modules;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.kernel.managers.SceUidManager;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
 import jpcsp.HLE.kernel.types.pspNetMacAddress;
@@ -123,7 +125,6 @@ public class sceNetApctl extends HLEModule {
 
 	private static final String dummyPrimaryDNS = "1.2.3.4";
 	private static final String dummySecondaryDNS = "1.2.3.5";
-	private static final String dummyGateway = "1.2.3.0";
 	private static final String dummySubnetMask = "255.255.255.0";
 	private static final int dummySubnetMaskInt = 0xFFFFFF00;
 
@@ -271,7 +272,16 @@ public class sceNetApctl extends HLEModule {
 	}
 
     public static String getGateway() {
-		return dummyGateway;
+    	String gateway = getLocalHostIP();
+
+    	// Replace last component of the local IP with "1".
+    	// E.g. "192.168.1.10" -> "192.168.1.1"
+    	int lastDot = gateway.lastIndexOf('.');
+    	if (lastDot >= 0) {
+    		gateway = gateway.substring(0, lastDot + 1) + "1";
+    	}
+
+    	return gateway;
 	}
 
     public static String getSubnetMask() {
@@ -631,7 +641,7 @@ public class sceNetApctl extends HLEModule {
 	 * @return < 0 on error.
 	 */
 	@HLEFunction(nid = 0x5DEAC81B, version = 150)
-	public int sceNetApctlGetState(TPointer32 stateAddr) {
+	public int sceNetApctlGetState(@BufferInfo(usage=Usage.out) TPointer32 stateAddr) {
 		stateAddr.setValue(state);
 
 		return 0;

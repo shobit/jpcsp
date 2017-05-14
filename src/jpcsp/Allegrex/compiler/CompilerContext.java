@@ -18,9 +18,22 @@ package jpcsp.Allegrex.compiler;
 
 import static java.lang.Math.min;
 import static jpcsp.Allegrex.Common._a0;
+import static jpcsp.Allegrex.Common._a1;
+import static jpcsp.Allegrex.Common._a2;
+import static jpcsp.Allegrex.Common._a3;
 import static jpcsp.Allegrex.Common._f0;
 import static jpcsp.Allegrex.Common._ra;
 import static jpcsp.Allegrex.Common._sp;
+import static jpcsp.Allegrex.Common._t0;
+import static jpcsp.Allegrex.Common._t1;
+import static jpcsp.Allegrex.Common._t2;
+import static jpcsp.Allegrex.Common._t3;
+import static jpcsp.Allegrex.Common._t4;
+import static jpcsp.Allegrex.Common._t5;
+import static jpcsp.Allegrex.Common._t6;
+import static jpcsp.Allegrex.Common._t7;
+import static jpcsp.Allegrex.Common._t8;
+import static jpcsp.Allegrex.Common._t9;
 import static jpcsp.Allegrex.Common._v0;
 import static jpcsp.Allegrex.Common._v1;
 import static jpcsp.Allegrex.Common._zr;
@@ -76,9 +89,11 @@ import jpcsp.HLE.TPointer16;
 import jpcsp.HLE.TPointer32;
 import jpcsp.HLE.TPointer64;
 import jpcsp.HLE.TPointer8;
+import jpcsp.HLE.kernel.Managers;
 import jpcsp.HLE.kernel.managers.IntrManager;
 import jpcsp.HLE.kernel.types.SceKernelErrors;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
+import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.kernel.types.pspAbstractMemoryMappedStructure;
 import jpcsp.HLE.modules.ThreadManForUser;
 import jpcsp.hardware.Interrupts;
@@ -1729,6 +1744,16 @@ public class CompilerContext implements ICompilerContext {
     		// When compiling code in the kernel memory space, do not perform any version check.
     		// This is used by overwritten HLE functions.
     		needFirmwareVersionCheck = false;
+    	} else {
+    		// When compiling code loaded from flash0, do not perform any version check.
+    		// This is used by overwritten HLE functions.
+    		SceModule module = Managers.modules.getModuleByAddress(codeInstruction.getAddress());
+    		if (module != null && module.pspfilename != null && module.pspfilename.startsWith("flash0:")) {
+    			if (log.isDebugEnabled()) {
+    				log.debug(String.format("syscall from a flash0 module(%s, '%s'), no firmware version check", module, module.pspfilename));
+    			}
+    			needFirmwareVersionCheck = false;
+    		}
     	}
 
     	Label unsupportedVersionLabel = null;
@@ -1940,31 +1965,51 @@ public class CompilerContext implements ICompilerContext {
     	flushInstructionCount(false, false);
 
     	int code = (opcode >> 6) & 0x000FFFFF;
-
-    	if (code == SyscallHandler.syscallUnmappedImport) {
-    		storePc();
-    	}
-
-    	HLEModuleFunction func = null;
+    	int syscallAddr = NIDMapper.getInstance().getAddressBySyscall(code);
     	// Call the HLE method only when it has not been overwritten
-    	if (NIDMapper.getInstance().getAddressBySyscall(code) == 0) {
-    		func = HLEModuleManager.getInstance().getFunctionFromSyscallCode(code);
-    	} else {
+    	if (syscallAddr != 0) {
     		if (log.isDebugEnabled()) {
     			log.debug(String.format("Calling overwritten HLE method '%s' instead of syscall", NIDMapper.getInstance().getNameBySyscall(code)));
     		}
-    	}
-
-    	boolean fastSyscall = isFastSyscall(code);
-    	if (func == null) {
-	    	loadImm(code);
-	    	if (fastSyscall) {
-	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscallFast", "(I)V");
-	    	} else {
-	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscall", "(I)V");
-	    	}
+	        mv.visitMethodInsn(Opcodes.INVOKESTATIC, getClassName(syscallAddr, instanceIndex), getStaticExecMethodName(), getStaticExecMethodDesc());
     	} else {
-    		visitSyscall(func, fastSyscall);
+        	if (code == SyscallHandler.syscallUnmappedImport) {
+        		storePc();
+        	}
+
+    		HLEModuleFunction func = HLEModuleManager.getInstance().getFunctionFromSyscallCode(code);
+
+    		boolean fastSyscall = isFastSyscall(code);
+        	if (func == null) {
+    	    	loadImm(code);
+    	    	if (fastSyscall) {
+    	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscallFast", "(I)V");
+    	    	} else {
+    	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscall", "(I)V");
+    	    	}
+        	} else {
+        		visitSyscall(func, fastSyscall);
+        	}
+
+        	// The following registers are always set to 0xDEADBEEF after a syscall
+        	int deadbeef = 0xDEADBEEF;
+        	storeRegister(_a0, deadbeef);
+        	storeRegister(_a1, deadbeef);
+        	storeRegister(_a2, deadbeef);
+        	storeRegister(_a3, deadbeef);
+        	storeRegister(_t0, deadbeef);
+        	storeRegister(_t1, deadbeef);
+        	storeRegister(_t2, deadbeef);
+        	storeRegister(_t3, deadbeef);
+        	storeRegister(_t4, deadbeef);
+        	storeRegister(_t5, deadbeef);
+        	storeRegister(_t6, deadbeef);
+        	storeRegister(_t7, deadbeef);
+        	storeRegister(_t8, deadbeef);
+        	storeRegister(_t9, deadbeef);
+        	prepareHiloForStore();
+        	mv.visitLdcInsn(new Long(0xDEADBEEFDEADBEEFL));
+        	storeHilo();
     	}
     }
 
@@ -2562,7 +2607,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public void memRead32(int registerIndex, int offset) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadMemory();
 		} else {
 			loadMemoryInt();
@@ -2570,7 +2615,7 @@ public class CompilerContext implements ICompilerContext {
 
 		prepareMemIndex(registerIndex, offset, true, 32);
 
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 	        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "read32", "(I)I");
 		} else {
 			mv.visitInsn(Opcodes.IALOAD);
@@ -2579,7 +2624,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public void memRead16(int registerIndex, int offset) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadMemory();
 		} else {
 			loadMemoryInt();
@@ -2600,7 +2645,7 @@ public class CompilerContext implements ICompilerContext {
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "debugMemoryReadWrite", "(IIIZI)V");
 		}
 
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 	        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "read16", "(I)I");
 		} else {
             if (checkMemoryAccess()) {
@@ -2633,7 +2678,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public void memRead8(int registerIndex, int offset) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadMemory();
 		} else {
 			loadMemoryInt();
@@ -2654,7 +2699,7 @@ public class CompilerContext implements ICompilerContext {
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "debugMemoryReadWrite", "(IIIZI)V");
 		}
 
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 	        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "read8", "(I)I");
 		} else {
             if (checkMemoryAccess()) {
@@ -2702,7 +2747,7 @@ public class CompilerContext implements ICompilerContext {
 			}
 		}
 
-		if (RuntimeContext.memoryInt != null) {
+		if (RuntimeContext.hasMemoryInt()) {
 			if (registerIndex == _sp) {
 				// No need to check for a valid memory access when referencing the $sp register
 				loadImm(2);
@@ -2725,7 +2770,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public void prepareMemWrite32(int registerIndex, int offset) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadMemory();
 		} else {
 			loadMemoryInt();
@@ -2739,7 +2784,7 @@ public class CompilerContext implements ICompilerContext {
 	@Override
 	public void memWrite32(int registerIndex, int offset) {
 		if (!memWritePrepared) {
-			if (RuntimeContext.memoryInt == null) {
+			if (!RuntimeContext.hasMemoryInt()) {
 				loadMemory();
 			} else {
 				loadMemoryInt();
@@ -2772,7 +2817,7 @@ public class CompilerContext implements ICompilerContext {
 			}
 		}
 
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 	        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "write32", "(II)V");
 		} else {
 			mv.visitInsn(Opcodes.IASTORE);
@@ -2783,7 +2828,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public void prepareMemWrite16(int registerIndex, int offset) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadMemory();
 		} else {
 			loadMemoryInt();
@@ -2795,7 +2840,7 @@ public class CompilerContext implements ICompilerContext {
 			mv.visitInsn(Opcodes.IADD);
 		}
 
-		if (RuntimeContext.memoryInt != null) {
+		if (RuntimeContext.hasMemoryInt()) {
 			if (checkMemoryAccess()) {
 				loadImm(codeInstruction.getAddress());
 				mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "checkMemoryWrite16", "(II)I");
@@ -2808,7 +2853,7 @@ public class CompilerContext implements ICompilerContext {
 	@Override
 	public void memWrite16(int registerIndex, int offset) {
 		if (!memWritePrepared) {
-			if (RuntimeContext.memoryInt == null) {
+			if (!RuntimeContext.hasMemoryInt()) {
 				loadMemory();
 			} else {
 				loadMemoryInt();
@@ -2821,7 +2866,7 @@ public class CompilerContext implements ICompilerContext {
 				mv.visitInsn(Opcodes.IADD);
 			}
 
-			if (RuntimeContext.memoryInt != null) {
+			if (RuntimeContext.hasMemoryInt()) {
 				if (checkMemoryAccess()) {
 					loadImm(codeInstruction.getAddress());
 					mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "checkMemoryWrite16", "(II)I");
@@ -2830,7 +2875,7 @@ public class CompilerContext implements ICompilerContext {
 			mv.visitInsn(Opcodes.SWAP);
 		}
 
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "write16", "(IS)V");
 		} else {
 			// tmp2 = value & 0xFFFF;
@@ -2874,7 +2919,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public void prepareMemWrite8(int registerIndex, int offset) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadMemory();
 		} else {
 			loadMemoryInt();
@@ -2886,7 +2931,7 @@ public class CompilerContext implements ICompilerContext {
 			mv.visitInsn(Opcodes.IADD);
 		}
 
-		if (RuntimeContext.memoryInt != null) {
+		if (RuntimeContext.hasMemoryInt()) {
 			if (checkMemoryAccess()) {
 				loadImm(codeInstruction.getAddress());
 				mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "checkMemoryWrite8", "(II)I");
@@ -2899,7 +2944,7 @@ public class CompilerContext implements ICompilerContext {
 	@Override
 	public void memWrite8(int registerIndex, int offset) {
 		if (!memWritePrepared) {
-			if (RuntimeContext.memoryInt == null) {
+			if (!RuntimeContext.hasMemoryInt()) {
 				loadMemory();
 			} else {
 				loadMemoryInt();
@@ -2912,7 +2957,7 @@ public class CompilerContext implements ICompilerContext {
 				mv.visitInsn(Opcodes.IADD);
 			}
 
-			if (RuntimeContext.memoryInt != null) {
+			if (RuntimeContext.hasMemoryInt()) {
 				if (checkMemoryAccess()) {
 					loadImm(codeInstruction.getAddress());
 					mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "checkMemoryWrite8", "(II)I");
@@ -2921,7 +2966,7 @@ public class CompilerContext implements ICompilerContext {
 			mv.visitInsn(Opcodes.SWAP);
 		}
 
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 	        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "write8", "(IB)V");
 		} else {
 			// tmp2 = value & 0xFF;
@@ -2965,7 +3010,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public void memWriteZero8(int registerIndex, int offset) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadMemory();
 		} else {
 			loadMemoryInt();
@@ -2977,14 +3022,14 @@ public class CompilerContext implements ICompilerContext {
 			mv.visitInsn(Opcodes.IADD);
 		}
 
-		if (RuntimeContext.memoryInt != null) {
+		if (RuntimeContext.hasMemoryInt()) {
 			if (checkMemoryAccess()) {
 				loadImm(codeInstruction.getAddress());
 				mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "checkMemoryWrite8", "(II)I");
 			}
 		}
 
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			loadImm(0);
 	        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, memoryInternalName, "write8", "(IB)V");
 		} else {
@@ -3038,7 +3083,7 @@ public class CompilerContext implements ICompilerContext {
     }
 
     private boolean checkMemoryAccess() {
-        if (RuntimeContext.memoryInt == null) {
+        if (!RuntimeContext.hasMemoryInt()) {
             return false;
         }
 
@@ -3930,7 +3975,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public boolean compileVFPULoad(int registerIndex, int offset, int vt, int count) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			// Can only generate an optimized code sequence for memoryInt
 			return false;
 		}
@@ -3989,7 +4034,7 @@ public class CompilerContext implements ICompilerContext {
 
 	@Override
 	public boolean compileVFPUStore(int registerIndex, int offset, int vt, int count) {
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			// Can only generate an optimized code sequence for memoryInt
 			return false;
 		}
@@ -4073,7 +4118,7 @@ public class CompilerContext implements ICompilerContext {
 	 */
 	public void optimizeSequence(List<CodeInstruction> codeInstructions) {
 		// Optimization only possible for memoryInt
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			return;
 		}
 		// Disable optimizations when the profiler is enabled.
@@ -4276,7 +4321,7 @@ public class CompilerContext implements ICompilerContext {
 
 	private boolean compileSWLWsequence(int baseRegister, int[] offsets, int[] registers, boolean isLW) {
 		// Optimization only possible for memoryInt
-		if (RuntimeContext.memoryInt == null) {
+		if (!RuntimeContext.hasMemoryInt()) {
 			return false;
 		}
 		// Disable optimizations when the profiler is enabled.

@@ -125,6 +125,7 @@ import jpcsp.HLE.kernel.types.pspUtilityBaseDialog;
 import jpcsp.HLE.kernel.types.pspUtilityDialogCommon;
 import jpcsp.HLE.kernel.types.SceUtilityOskParams.SceUtilityOskData;
 import jpcsp.HLE.kernel.types.pspCharInfo;
+import jpcsp.HLE.modules.ModuleMgrForUser.LoadModuleContext;
 import jpcsp.HLE.modules.SysMemUserForUser.SysMemInfo;
 import jpcsp.crypto.CryptoEngine;
 import jpcsp.filesystems.SeekableDataInput;
@@ -269,6 +270,7 @@ public class sceUtility extends HLEModule {
     public static final int PSP_NETPARAM_WPA_KEY = 22; // string
     public static final int PSP_NETPARAM_BROWSER = 23; // int
     public static final int PSP_NETPARAM_WIFI_CONFIG = 24; // int
+    public static final int PSP_NETPARAM_MAX_NUMBER_DUMMY_ENTRIES = 10;
     protected static final int maxLineLengthForDialog = 40;
     protected static final int icon0Width = 144;
     protected static final int icon0Height = 80;
@@ -2246,6 +2248,11 @@ public class sceUtility extends HLEModule {
         protected boolean hasDialog() {
             return false;
         }
+
+		@Override
+		protected int getShutdownDelay() {
+			return 50000;
+		}
     }
 
     protected static class NpSigninUtilityDialogState extends UtilityDialogState {
@@ -2691,15 +2698,31 @@ public class sceUtility extends HLEModule {
             checkController();
         }
 
+        protected String truncateText(String text, int width, float scale) {
+        	String truncatedText = text;
+        	String truncation = "";
+        	while (true) {
+            	int textLength = getTextLength(getDefaultFontInfo(), truncatedText + truncation, scale);
+            	if (textLength <= width) {
+            		break;
+            	}
+        		truncatedText = truncatedText.substring(0, truncatedText.length() - 1);
+        		truncation = "...";
+        	}
+
+        	return truncatedText + truncation;
+        }
+
         private String wrapText(String text, int width, float scale) {
         	SceFontInfo fontInfo = getDefaultFontInfo();
         	int glyphType = SceFontInfo.FONT_PGF_GLYPH_TYPE_CHAR;
 
         	StringBuilder wrappedText = new StringBuilder();
-        	float x = 0f;
+        	int x = 0;
         	int lastSpaceStart = -1;
         	int lastSpaceEnd = -1;
         	boolean isSpace = false;
+        	int scaledWidth = (int) (width / scale);
             for (int i = 0; i < text.length(); i++) {
             	char c = text.charAt(i);
             	pspCharInfo charInfo = fontInfo.getCharInfo(c, glyphType);
@@ -2715,9 +2738,9 @@ public class sceUtility extends HLEModule {
             		isSpace = false;
             	}
 
-                float nextX = x + charInfo.sfp26AdvanceH * scale / 64f;
-                if (nextX > width) {
-            		x = 0f;
+                int nextX = x + charInfo.sfp26AdvanceH >> 6;
+                if (nextX > scaledWidth) {
+            		x = 0;
             		if (lastSpaceStart >= 0) {
         				wrappedText.replace(lastSpaceStart, lastSpaceEnd, "\n");
             		} else {
@@ -3663,7 +3686,7 @@ public class sceUtility extends HLEModule {
                     int textX = 180;
                     int textY = 119;
 
-                    drawTextWithShadow(textX, textY, 0xD1C6BA, 0.85f, title);
+                    drawTextWithShadow(textX, textY, 0xD1C6BA, 0.85f, truncateText(title, Screen.width - textX, 0.85f));
 
                     textY += 22;
                     if (savedTime != null) {
@@ -4045,7 +4068,7 @@ public class sceUtility extends HLEModule {
         PSP_MODULE_USB_GPS(0x0203),
         PSP_MODULE_AV_AVCODEC(0x0300, "flash0:/kd/avcodec.prx"),
         PSP_MODULE_AV_SASCORE(0x0301, "flash0:/kd/sc_sascore.prx"),
-        PSP_MODULE_AV_ATRAC3PLUS(0x0302),
+        PSP_MODULE_AV_ATRAC3PLUS(0x0302, "flash0:/kd/libatrac3plus.prx"),
         PSP_MODULE_AV_MPEGBASE(0x0303, "flash0:/kd/mpeg.prx"),
         PSP_MODULE_AV_MP3(0x0304),
         PSP_MODULE_AV_VAUDIO(0x0305),
@@ -4592,6 +4615,11 @@ public class sceUtility extends HLEModule {
     public int sceUtilityCheckNetParam(int id) {
         boolean available = (id >= 0 && id <= 24);
 
+        // We do not return too many entries as some homebrew only support a limited number of entries.
+        if (id > PSP_NETPARAM_MAX_NUMBER_DUMMY_ENTRIES) {
+        	available = false;
+        }
+
         return available ? 0 : SceKernelErrors.ERROR_NETPARAM_BAD_NETCONF;
     }
 
@@ -4632,7 +4660,7 @@ public class sceUtility extends HLEModule {
                 // 0 is DHCP.
                 // 1 is static.
                 // 2 is PPPOE.
-                data.setValue32(0);
+                data.setValue32(1);
                 break;
             case PSP_NETPARAM_IP:
                 data.setStringZ(sceNetApctl.getLocalHostIP());
@@ -5004,9 +5032,12 @@ public class sceUtility extends HLEModule {
             }
         }
 
-        int result = Modules.ModuleMgrForUserModule.hleKernelLoadModule(path, 0, 0, 0, 0, lmOption, false, false, true, 0);
+        LoadModuleContext loadModuleContext = new LoadModuleContext();
+        loadModuleContext.fileName = path;
+        loadModuleContext.lmOption = lmOption;
+        loadModuleContext.allocMem = true;
 
-		return result;
+        return Modules.ModuleMgrForUserModule.hleKernelLoadModule(loadModuleContext);
 	}
 
 	@HLEFunction(nid = 0x78A2FE0C, version = 150)

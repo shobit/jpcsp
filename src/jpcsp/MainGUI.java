@@ -2242,7 +2242,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
 	    	        psfFile.read(data);
 	    	        psf.read(ByteBuffer.wrap(data));
 
-	    	        log.info(String.format("Content of %s:\n%s", paramSfoFile, psf));
+	    	        log.info(String.format("Content of %s:%s%s", paramSfoFile, System.lineSeparator(), psf));
         		} catch (IOException e) {
         			// Ignore exception
         		}
@@ -2915,6 +2915,7 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
             	runFromVsh = true;
             	logStart();
 	            setTitle(MetaInformation.FULL_NAME + " - VSH");
+	            Emulator.getInstance().setFirmwareVersion(660);
                 Modules.sceDisplayModule.setCalledFromCommandLine();
                 loadFile(new File("flash0/vsh/module/vshmain.prx"), true);
 
