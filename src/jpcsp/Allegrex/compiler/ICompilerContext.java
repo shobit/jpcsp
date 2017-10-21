@@ -123,7 +123,7 @@ public interface ICompilerContext {
     public int getImm5();
     public int getImm4();
     public int getImm3();
-    public void loadImm(int imm);
+    public void loadImm(Integer imm);
     public void loadImm16(boolean signedImm);
     public MethodVisitor getMethodVisitor();
     public void memRead32(int registerIndex, int offset);

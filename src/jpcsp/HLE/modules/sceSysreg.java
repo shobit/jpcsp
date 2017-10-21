@@ -25,6 +25,14 @@ import jpcsp.HLE.Modules;
 
 public class sceSysreg extends HLEModule {
     public static Logger log = Modules.getLogger("sceSysreg");
+    public long fuseId = 0L;
+
+    public void setFuseId(long fuseId) {
+    	if (log.isDebugEnabled()) {
+    		log.debug(String.format("setFuseId 0x%X", fuseId));
+    	}
+    	this.fuseId = fuseId;
+    }
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x0143E8A8, version = 150)
@@ -167,7 +175,7 @@ public class sceSysreg extends HLEModule {
     @HLEUnimplemented
     @HLEFunction(nid = 0x20DF8278, version = 150)
     public int sceSysregMsifGetConnectStatus() {
-    	return 0;
+    	return 1;
     }
 
     @HLEUnimplemented
@@ -262,7 +270,8 @@ public class sceSysreg extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x3F6F2CC7, version = 150)
-    public int sceSysreg_driver_3F6F2CC7() {
+    public int sceSysreg_driver_3F6F2CC7(int cpuFreqNumerator, int cpuFreqDenominator) {
+    	// Sets the CPU Frequency by ratio
     	return 0;
     }
 
@@ -658,8 +667,8 @@ public class sceSysreg extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0x96D74557, version = 150)
-    public int sceSysreg_driver_96D74557() {
-    	return 0;
+    public float sceSysreg_driver_96D74557() {
+    	return 0f;
     }
 
     @HLEUnimplemented
@@ -706,8 +715,8 @@ public class sceSysreg extends HLEModule {
 
     @HLEUnimplemented
     @HLEFunction(nid = 0xA5CC6025, version = 150)
-    public int sceSysregPllGetFrequency() {
-    	return 0;
+    public float sceSysregPllGetFrequency() {
+    	return 0f;
     }
 
     @HLEUnimplemented
@@ -960,5 +969,25 @@ public class sceSysreg extends HLEModule {
     @HLEFunction(nid = 0xFF0E07B1, version = 150)
     public int sceSysreg_driver_FF0E07B1() {
     	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x16909002, version = 150)
+    public int sceSysregAtaBusClockEnable() {
+    	// Has no parameters
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0xE2A5D1EE, version = 150)
+    public int sceSysregGetTachyonVersion() {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x4F46EEDE, version = 150)
+    public long sceSysregGetFuseId() {
+    	// Has no parameters
+    	return fuseId;
     }
 }

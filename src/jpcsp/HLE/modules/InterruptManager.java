@@ -20,7 +20,9 @@ import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
 import jpcsp.HLE.HLEUnimplemented;
 import jpcsp.HLE.Modules;
+import jpcsp.HLE.TPointer;
 import jpcsp.HLE.kernel.Managers;
+import jpcsp.HLE.kernel.managers.IntrManager;
 
 import org.apache.log4j.Logger;
 
@@ -85,13 +87,13 @@ public class InterruptManager extends HLEModule {
 
 	@HLEUnimplemented
 	@HLEFunction(nid = 0xD774BA45, version = 150)
-	public int sceKernelDisableIntr() {
+	public int sceKernelDisableIntr(int intrNumber) {
 		return 0;
 	}
 
 	@HLEUnimplemented
 	@HLEFunction(nid = 0x4D6E7305, version = 150)
-	public int sceKernelEnableIntr() {
+	public int sceKernelEnableIntr(int intrNumber) {
 		return 0;
 	}
 
@@ -115,7 +117,7 @@ public class InterruptManager extends HLEModule {
 
 	@HLEUnimplemented
 	@HLEFunction(nid = 0x58DD8978, version = 150)
-	public int sceKernelRegisterIntrHandler() {
+	public int sceKernelRegisterIntrHandler(int intrNumber, int unknown1, TPointer handler, TPointer unknown2, int unknown3) {
 		return 0;
 	}
 
@@ -126,8 +128,25 @@ public class InterruptManager extends HLEModule {
 	}
 
 	@HLEUnimplemented
-	@HLEFunction(nid = 0xFFA8B183, version = 150)
-	public int sceKernelRegisterSubIntrHandler() {
+	@HLEFunction(nid = 0xFFA8B183, version = 660)
+	public int sceKernelRegisterSubIntrHandler_660(int intrNumber, int subIntrNumber, int handlerAddress, int handlerArgument) {
+		return sceKernelRegisterSubIntrHandler(intrNumber, subIntrNumber, handlerAddress, handlerArgument);
+	}
+
+	@HLEFunction(nid = 0xFE28C6D9, version = 150)
+	public boolean sceKernelIsIntrContext() {
+		return IntrManager.getInstance().isInsideInterrupt();
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0xA0F88036, version = 150)
+	public int sceKernelGetSyscallRA() {
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x14D4C61A, version = 660)
+	public int sceKernelRegisterSystemCallTable_660(TPointer syscallTable) {
 		return 0;
 	}
 }

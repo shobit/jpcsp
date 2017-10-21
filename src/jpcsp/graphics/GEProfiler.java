@@ -37,7 +37,7 @@ public class GEProfiler {
     public static Logger log = Logger.getLogger("profiler");
     private static boolean profilerEnabled = true;
     private static ProfilerEnabledSettingsListerner profilerEnabledSettingsListerner;
-    private static final Long zero = new Long(0);
+    private static final Long zero = 0L;
     private static HashMap<Integer, Long> cmdCounts = new HashMap<Integer, Long>();
     private static HashMap<Integer, Long> primVtypeCounts = new HashMap<Integer, Long>();
     private static HashMap<Integer, String> vtypeNames = new HashMap<Integer, String>();
@@ -86,7 +86,7 @@ public class GEProfiler {
     }
 
     public static void exit() {
-        if (!profilerEnabled) {
+        if (!profilerEnabled || geListCount == 0) {
             return;
         }
 

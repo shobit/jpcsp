@@ -89,14 +89,14 @@ public class MemoryBreakpointsDialog extends javax.swing.JDialog {
                 // validate entered addresses
                 if (tme.getColumn() == COL_STARTADDRESS || tme.getColumn() == COL_ENDADDRESS) {
                     for (int i = tme.getFirstRow(); i <= tme.getLastRow(); i++) {
-                        int start = Integer.decode(mbpm.getValueAt(i, COL_STARTADDRESS).toString());
-                        int end = Integer.decode(mbpm.getValueAt(i, COL_ENDADDRESS).toString());
+                        Integer start = Integer.decode(mbpm.getValueAt(i, COL_STARTADDRESS).toString());
+                        Integer end = Integer.decode(mbpm.getValueAt(i, COL_ENDADDRESS).toString());
                         
                         if (tme.getColumn() == COL_STARTADDRESS && start > end) {
-                            mbpm.setValueAt(new Integer(start), i, COL_ENDADDRESS);
+                            mbpm.setValueAt(start, i, COL_ENDADDRESS);
                         }
                         if (tme.getColumn() == COL_ENDADDRESS && end < start) {
-                            mbpm.setValueAt(new Integer(end), i, COL_STARTADDRESS);
+                            mbpm.setValueAt(end, i, COL_STARTADDRESS);
                         }
                     }
                 }

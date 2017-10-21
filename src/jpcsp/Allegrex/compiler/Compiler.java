@@ -21,6 +21,9 @@ import static jpcsp.Allegrex.Common.Instruction.FLAG_IS_BRANCHING;
 import static jpcsp.Allegrex.Common.Instruction.FLAG_IS_JUMPING;
 import static jpcsp.Allegrex.Common.Instruction.FLAG_STARTS_NEW_BLOCK;
 import static jpcsp.Allegrex.Common.Instruction.FLAG_SYSCALL;
+import static jpcsp.HLE.SyscallHandler.syscallLoadCoreUnmappedImport;
+import static jpcsp.HLE.modules.ThreadManForUser.NOP;
+import static jpcsp.HLE.modules.ThreadManForUser.SYSCALL;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,6 +44,7 @@ import jpcsp.Allegrex.Decoder;
 import jpcsp.Allegrex.Instructions;
 import jpcsp.Allegrex.Common.Instruction;
 import jpcsp.Allegrex.compiler.nativeCode.NativeCodeManager;
+import jpcsp.HLE.kernel.types.IAction;
 import jpcsp.memory.IMemoryReader;
 import jpcsp.memory.MemoryReader;
 import jpcsp.memory.MemorySections;
@@ -150,6 +154,9 @@ public class Compiler implements ICompiler {
     private static final int maxRecompileExecutable = 50;
     private CompilerTypeManager compilerTypeManager;
     private HashSet<Integer> interpretedAddresses = new HashSet<Integer>();
+    private static final int opcodeSyscallLoadCoreUnmappedImport = SYSCALL(syscallLoadCoreUnmappedImport);
+    private static final int opcodeNop = NOP();
+    private Set<Integer> useMMIOAddresses = new HashSet<Integer>();
 
 	private class IgnoreInvalidMemoryAccessSettingsListerner extends AbstractBoolSettingsListener {
 		@Override
@@ -293,7 +300,14 @@ public class Compiler implements ICompiler {
     	}
 
     	if (codeBlock.areOpcodesChanged()) {
-			invalidateCodeBlock(codeBlock);
+    		IAction updateOpcodesAction = codeBlock.getUpdateOpcodesAction();
+    		if (updateOpcodesAction != null) {
+    			// Execute the action provided by the code block to update the opcodes
+    			updateOpcodesAction.execute();
+    		} else {
+    			// This is the default action when the opcodes has been updated
+    			invalidateCodeBlock(codeBlock);
+    		}
 		} else {
 			// The opcodes of the code block could get updated by the application "after" calling an icache instruction.
 			// Check if the opcodes have been updated the next time the code block is executed.
@@ -439,6 +453,18 @@ public class Compiler implements ICompiler {
 
                     if (isEndBlockInsn(pc, opcode, insn)) {
                     	endPc = npc;
+                    } else if (opcode == opcodeSyscallLoadCoreUnmappedImport) {
+                    	// loadcore.prx is generating the following sequence for unmapped imports:
+                    	//     syscall 0x00015
+                    	//     nop
+                    	// As there is no instruction marking the end of this block, we
+                    	// need to handle this special case.
+                    	int nextOpcode = memoryReader.readNext();
+                    	if (nextOpcode == opcodeNop) {
+                    		endPc = npc;
+                    	}
+                    	// Undo reading of next instruction
+                		memoryReader.skip(-1);
                     }
 
                     if (insn.hasFlags(Instruction.FLAG_STARTS_NEW_BLOCK)) {
@@ -470,7 +496,9 @@ public class Compiler implements ICompiler {
                         }
                     }
 
-                    codeBlock.addInstruction(pc, opcode, insn, isBranchTarget, isBranching, branchingTo);
+                    boolean useMMIO = useMMIOAddresses.contains(pc);
+
+                    codeBlock.addInstruction(pc, opcode, insn, isBranchTarget, isBranching, branchingTo, useMMIO);
                     pc = npc;
 
                     isBranchTarget = false;
@@ -671,5 +699,13 @@ public class Compiler implements ICompiler {
 
 	public CompilerTypeManager getCompilerTypeManager() {
 		return compilerTypeManager;
+	}
+
+	public void addMMIORange(int startAddress, int length) {
+		startAddress &= Memory.addressMask;
+
+		for (int i = 0; i < length; i += 4) {
+			useMMIOAddresses.add(startAddress + i);
+		}
 	}
 }

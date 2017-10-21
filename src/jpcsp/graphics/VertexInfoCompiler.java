@@ -69,6 +69,7 @@ public class VertexInfoCompiler {
 		return compiledVertexInfoReader;
 	}
 
+	@SuppressWarnings("deprecation")
 	private VertexInfoReaderTemplate compileVertexInfoReader(int key, int vtype, boolean readTexture) {
 		VertexInfo.processType(vinfo, vtype);
 

@@ -33,6 +33,7 @@ import jpcsp.NIDMapper;
 import jpcsp.Allegrex.compiler.RuntimeContext;
 import jpcsp.HLE.VFS.IVirtualFileSystem;
 import jpcsp.HLE.kernel.Managers;
+import jpcsp.HLE.kernel.types.IAction;
 import jpcsp.HLE.kernel.types.SceIoStat;
 import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.modules.ThreadManForUser;
@@ -51,6 +52,7 @@ public class HLEModuleManager {
     private static HLEModuleManager instance;
 
     public static final int HLESyscallNid = -1;
+    public static final int InternalSyscallNid = -1;
 
     private boolean modulesStarted = false;
     private boolean startFromSyscall;
@@ -69,19 +71,42 @@ public class HLEModuleManager {
      * They will then replace the HLE equivalent.
      */
 	private static final String[] moduleFileNamesToBeLoaded = {
-			"flash0:/kd/utility.prx"
+			  "flash0:/kd/utility.prx"
+			, "flash0:/kd/vshbridge.prx"
+			, "flash0:/vsh/module/paf.prx"
+			, "flash0:/vsh/module/common_gui.prx"
+			, "flash0:/vsh/module/common_util.prx"
+//			, "flash0:/kd/memlmd_01g.prx"
+//			, "flash0:/kd/loadcore.prx"
+//			, "flash0:/kd/loadexec_01g.prx"
+//			, "flash0:/kd/modulemgr.prx"
+//			, "flash0:/kd/iofilemgr.prx"
+//			, "flash0:/kd/isofs.prx"
+//			, "flash0:/kd/umd9660.prx"
+//			, "flash0:/kd/lfatfs.prx"
+//			, "flash0:/kd/fatms.prx"
+//			, "flash0:/kd/codepage.prx"
 	};
 
-    /**
+	private static final String[] moduleFilesNameVshOnly = {
+			"flash0:/kd/vshbridge.prx"
+			, "flash0:/vsh/module/paf.prx"
+			, "flash0:/vsh/module/common_gui.prx"
+			, "flash0:/vsh/module/common_util.prx"
+	};
+
+	/**
      * List of modules that can be loaded
      * - by default in all firmwares (or only from a given FirmwareVersion)
      * - by sceKernelLoadModule/sceUtilityLoadModule from the flash0 or from the UMD (.prx)
      */
     private enum ModuleInfo {
     	SysMemUserForUser(Modules.SysMemUserForUserModule),
-        SysMemForKernel(Modules.SysMemForKernelModule),
     	IoFileMgrForUser(Modules.IoFileMgrForUserModule),
+    	IoFileMgrForKernel(Modules.IoFileMgrForKernelModule),
     	ThreadManForUser(Modules.ThreadManForUserModule),
+    	ThreadManForKernel(Modules.ThreadManForKernelModule),
+        SysMemForKernel(Modules.SysMemForKernelModule), // To be loaded after ThreadManForUser
     	InterruptManager(Modules.InterruptManagerModule),
     	LoadExecForUser(Modules.LoadExecForUserModule),
     	LoadExecForKernel(Modules.LoadExecForKernelModule),
@@ -101,11 +126,13 @@ public class HLEModuleManager {
         sceAudio(Modules.sceAudioModule),
         sceImpose(Modules.sceImposeModule),
         sceSuspendForUser(Modules.sceSuspendForUserModule),
+        sceSuspendForKernel(Modules.sceSuspendForKernelModule),
         sceDmac(Modules.sceDmacModule),
         sceHprm(Modules.sceHprmModule),		// check if loaded by default
         sceAtrac3plus(Modules.sceAtrac3plusModule, new String[] { "libatrac3plus", "PSP_AV_MODULE_ATRAC3PLUS", "PSP_MODULE_AV_ATRAC3PLUS", "sceATRAC3plus_Library" }, "flash0:/kd/libatrac3plus.prx"),
         sceSasCore(Modules.sceSasCoreModule, new String[] { "sc_sascore", "PSP_AV_MODULE_SASCORE", "PSP_MODULE_AV_SASCORE", "sceSAScore" }, "flash0:/kd/sc_sascore.prx"),
-        sceMpeg(Modules.sceMpegModule, new String[] { "mpeg", "mpeg_vsh", "mpeg_vsh370", "PSP_AV_MODULE_MPEGBASE", "PSP_MODULE_AV_MPEGBASE", "sceMpeg_library" }, "flash0:/kd/mpeg.prx"),
+        sceMpeg(Modules.sceMpegModule, new String[] { "mpeg", "PSP_AV_MODULE_MPEGBASE", "PSP_MODULE_AV_MPEGBASE", "sceMpeg_library" }, "flash0:/kd/mpeg.prx"),
+        sceMpegVsh(Modules.sceMpegModule, new String[] { "mpeg_vsh", "mpeg_vsh370", }, "flash0:/kd/mpeg_vsh.prx"),
         sceMpegbase(Modules.sceMpegbaseModule, new String[] { "PSP_AV_MODULE_AVCODEC", "PSP_MODULE_AV_AVCODEC", "avcodec", "sceMpegbase_Driver" }, "flash0:/kd/avcodec.prx"),
         sceFont(Modules.sceFontModule, new String[] { "libfont", "sceFont_Library" }),
         scePsmfPlayer(Modules.scePsmfPlayerModule, new String[] { "libpsmfplayer", "psmf_jk", "scePsmfP_library" }),
@@ -139,7 +166,8 @@ public class HLEModuleManager {
         sceNpCamp(Modules.sceNpCampModule, new String[] { "np_campaign" }, "flash0:/kd/np_campaign.prx"),
         scePspNpDrm_user(Modules.scePspNpDrm_userModule, new String[] { "PSP_MODULE_NP_DRM", "npdrm" }),
         sceVaudio(Modules.sceVaudioModule, new String[] { "PSP_AV_MODULE_VAUDIO", "PSP_MODULE_AV_VAUDIO" }),
-        sceMp4(Modules.sceMp4Module, new String[] { "PSP_MODULE_AV_MP4", "mp4msv", "libmp4" }, "flash0:/kd/libmp4.prx"),
+        sceMp4(Modules.sceMp4Module, new String[] { "PSP_MODULE_AV_MP4", "libmp4" }, "flash0:/kd/libmp4.prx"),
+        mp4msv(Modules.mp4msvModule, new String[] { "mp4msv" }, "flash0:/kd/mp4msv.prx"),
         sceHttp(Modules.sceHttpModule, new String[] { "libhttp", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }, "flash0:/kd/libhttp.prx"),
         sceHttps(Modules.sceHttpsModule, new String[] { "libhttp", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP" }, "flash0:/kd/libhttp.prx"),
         sceHttpStorage(Modules.sceHttpStorageModule, new String[] { "http_storage" }, "flash0:/kd/http_storage.prx"),
@@ -155,7 +183,7 @@ public class HLEModuleManager {
         scePauth(Modules.scePauthModule),
         sceSfmt19937(Modules.sceSfmt19937Module),
         sceMd5(Modules.sceMd5Module, new String[] { "libmd5" }),
-        sceParseUri(Modules.sceParseUriModule, new String[] { "libparse_uri", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP", "PSP_MODULE_NET_PARSEURI" }),
+        sceParseUri(Modules.sceParseUriModule, new String[] { "libparse_uri", "libhttp_rfc", "PSP_NET_MODULE_HTTP", "PSP_MODULE_NET_HTTP", "PSP_MODULE_NET_PARSEURI" }, "flash0:/kd/libparse_uri.prx"),
         sceUsbAcc(Modules.sceUsbAccModule, new String[] { "PSP_USB_MODULE_ACC", "USBAccBaseDriver" }),
         sceMt19937(Modules.sceMt19937Module, new String[] { "libmt19937" }),
         sceAac(Modules.sceAacModule, new String[] { "libaac", "PSP_AV_MODULE_AAC", "PSP_MODULE_AV_AAC" }),
@@ -201,7 +229,22 @@ public class HLEModuleManager {
         DmacManForKernel(Modules.DmacManForKernelModule),
         sceSyscon(Modules.sceSysconModule),
         sceLed(Modules.sceLedModule),
-        sceSysreg(Modules.sceSysregModule);
+        sceSysreg(Modules.sceSysregModule),
+        scePsheet(Modules.scePsheetModule),
+        sceUmdMan(Modules.sceUmdManModule),
+        sceCodepage(Modules.sceCodepageModule),
+        sceMSstor(Modules.sceMSstorModule),
+        sceAta(Modules.sceAtaModule),
+        sceGpio(Modules.sceGpioModule),
+        sceNand(Modules.sceNandModule),
+        sceBSMan(Modules.sceBSManModule),
+        memlmd(Modules.memlmdModule),
+        reboot(Modules.rebootModule),
+        sceI2c(Modules.sceI2cModule),
+        scePwm(Modules.scePwmModule),
+        sceLcdc(Modules.sceLcdcModule),
+        sceDmacplus(Modules.sceDmacplusModule),
+        sceDdr(Modules.sceDdrModule);
 
     	private HLEModule module;
     	private boolean loadedByDefault;
@@ -456,6 +499,10 @@ public class HLEModuleManager {
     	return func;
     }
 
+    public HLEModuleFunction getFunctionFromNID(int nid) {
+    	return nidToFunction.get(nid);
+    }
+
     public void removeFunction(HLEModuleFunction func) {
     	nidMapper.unloadNid(func.getNid());
     }
@@ -539,7 +586,7 @@ public class HLEModuleManager {
 			functionName = method.getName();
 		}
 
-		HLEModuleFunction hleModuleFunction = new HLEModuleFunction(moduleName, functionName, hleModule, method, hleFunction.checkInsideInterrupt(), hleFunction.checkDispatchThreadEnabled(), hleFunction.stackUsage(), hleFunction.version());
+		HLEModuleFunction hleModuleFunction = new HLEModuleFunction(moduleName, functionName, hleFunction.nid(), hleModule, method, hleFunction.checkInsideInterrupt(), hleFunction.checkDispatchThreadEnabled(), hleFunction.stackUsage(), hleFunction.version());
 
 		if (hleUnimplemented != null) {
 			hleModuleFunction.setUnimplemented(true);
@@ -597,14 +644,28 @@ public class HLEModuleManager {
 		hleModule.unload();
 	}
 
-	public void loadAvailableFlash0Modules() {
+	private boolean isModuleFileNameVshOnly(String moduleFileName) {
+		for (int i = 0; i < moduleFilesNameVshOnly.length; i++) {
+			if (moduleFilesNameVshOnly[i].equalsIgnoreCase(moduleFileName)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	public void loadAvailableFlash0Modules(boolean fromSyscall) {
+		boolean runningFromVsh = Emulator.getMainGUI().isRunningFromVsh() && !fromSyscall;
+
 		List<String> availableModuleFileNames = new LinkedList<>();
 		for (String moduleFileName : moduleFileNamesToBeLoaded) {
-			StringBuilder localFileName = new StringBuilder();
-			IVirtualFileSystem vfs = Modules.IoFileMgrForUserModule.getVirtualFileSystem(moduleFileName, localFileName);
-			if (vfs != null && vfs.ioGetstat(localFileName.toString(), new SceIoStat()) == 0) {
-				// The module is available, load it
-				availableModuleFileNames.add(moduleFileName);
+			if (runningFromVsh || !isModuleFileNameVshOnly(moduleFileName)) {
+				StringBuilder localFileName = new StringBuilder();
+				IVirtualFileSystem vfs = Modules.IoFileMgrForUserModule.getVirtualFileSystem(moduleFileName, localFileName);
+				if (vfs != null && vfs.ioGetstat(localFileName.toString(), new SceIoStat()) == 0) {
+					// The module is available, load it
+					availableModuleFileNames.add(moduleFileName);
+				}
 			}
 		}
 
@@ -613,17 +674,24 @@ public class HLEModuleManager {
 			return;
 		}
 
-		// These 2 HLE modules need to be started in order
+		// This HLE module need to be started in order
 		// to be able to load and start the available modules.
 		Modules.ModuleMgrForUserModule.start();
-    	Modules.ThreadManForUserModule.start();
 
     	int startPriority = 0x10;
     	for (String moduleFileName : availableModuleFileNames) {
         	if (log.isInfoEnabled()) {
         		log.info(String.format("Loading and starting the module '%s', it will replace the equivalent HLE functions", moduleFileName));
         	}
-    		Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule(moduleFileName, startPriority++);
+
+        	IAction onModuleStartAction = null;
+
+        	// loadcore.prx requires start parameters
+        	if ("flash0:/kd/loadcore.prx".equals(moduleFileName)) {
+        		onModuleStartAction = Modules.LoadCoreForKernelModule.getModuleStartAction();
+        	}
+
+        	Modules.ModuleMgrForUserModule.hleKernelLoadAndStartModule(moduleFileName, startPriority++, onModuleStartAction);
     	}
 	}
 }

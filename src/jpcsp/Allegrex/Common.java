@@ -16,6 +16,12 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.Allegrex;
 
+import static jpcsp.HLE.SyscallHandler.syscallLoadCoreUnmappedImport;
+import static jpcsp.HLE.SyscallHandler.syscallUnmappedImport;
+
+import org.apache.log4j.Logger;
+
+import jpcsp.Emulator;
 import jpcsp.Memory;
 import jpcsp.Processor;
 import jpcsp.Allegrex.compiler.ICompilerContext;
@@ -31,7 +37,7 @@ import jpcsp.util.Utilities;
 public class Common {
 
     public static abstract class Instruction {
-
+    	protected static Logger log = Emulator.log;
         private int m_count = 0;
         private int flags = 0;
         public final static int FLAG_INTERPRETED = (1 << 0);
@@ -501,9 +507,21 @@ public class Common {
     public static String[] cop0Names = {
         "Index", "Random", "EntryLo0", "EntryLo1", "Context", "PageMask", "Wired", "cop0reg7",
         "BadVaddr", "Count", "EntryHi", "Compare", "Status", "Cause", "EPC", "PrID",
-        "Config", "LLAddr", "WatchLo", "WatchHi", "XContext", "cop0reg21", "cop0reg22", "cop0reg23",
+        "Config", "LLAddr", "WatchLo", "WatchHi", "XContext", "SyscallCode", "CPUId", "cop0reg23",
         "cop0reg24", "EBase", "ECC", "CacheErr", "TagLo", "TagHi", "ErrorPC", "cop0reg31"
     };
+    public static final int COP0_STATE_COUNT = 9;
+    public static final int COP0_STATE_COMPARE = 11;
+    public static final int COP0_STATE_STATUS = 12;
+    public static final int COP0_STATE_CAUSE = 13;
+    public static final int COP0_STATE_EPC = 14;
+    public static final int COP0_STATE_CONFIG = 16;
+    public static final int COP0_STATE_SCCODE = 21;
+    public static final int COP0_STATE_CPUID = 22;
+    public static final int COP0_STATE_REG24 = 24;
+    public static final int COP0_STATE_EBASE = 25;
+    public static final int COP0_STATE_TAGLO = 28;
+    public static final int COP0_STATE_TAGHI = 29;
     public static String vsuffix[] = {
         ".s",
         ".p",
@@ -682,7 +700,13 @@ public class Common {
     	}
 
     	if (functionName == null) {
-    		functionName = "unknown";
+    		if (code == syscallUnmappedImport) {
+    			functionName = "Unmapped import";
+    		} else if (code == syscallLoadCoreUnmappedImport) {
+    			functionName = "Unmapped import from loadcore";
+    		} else {
+    			functionName = "unknown";
+    		}
     	}
 
         return String.format("%1$-10s 0x%2$05X [%3$s]", "syscall", code, functionName);
@@ -699,13 +723,9 @@ public class Common {
         // If we think the target is a stub, try and append the syscall name
         if ((opname.equals("jal") || opname.equals("j")) && jump != 0 &&
                 jumpToSyscall != opcode_address && Memory.isAddressGood(jumpToSyscall)) {
-        	String hleFunctionName = null;
-        	HLEModuleFunction func = HLEModuleManager.getInstance().getFunctionFromAddress(jump);
-        	if (func != null) {
-        		hleFunctionName = func.getFunctionName();
-        	}
-        	if (hleFunctionName != null) {
-                return String.format("%1$-10s 0x%2$08X [%3$s]", opname, jump, hleFunctionName);
+        	String functionName = Utilities.getFunctionNameByAddress(jump);
+        	if (functionName != null) {
+                return String.format("%1$-10s 0x%2$08X [%3$s]", opname, jump, functionName);
         	}
             int nextOpcode = jpcsp.Memory.getInstance().read32(jumpToSyscall);
             Instruction nextInsn = Decoder.instruction(nextOpcode);
@@ -751,6 +771,14 @@ public class Common {
 
     public static String disasmRTFC(String opname, int rt, int fc) {
         return String.format("%1$-10s %2$s, %3$s", opname, gprNames[rt], fcrNames[fc]);
+    }
+
+    public static String disasmRTC0dr(String opname, int rt, int c0dr) {
+        return String.format("%1$-10s %2$s, %3$s", opname, gprNames[rt], cop0Names[c0dr]);
+    }
+
+    public static String disasmRTC0cr(String opname, int rt, int c0cr) {
+        return String.format("%1$-10s %2$s, %3$d", opname, gprNames[rt], c0cr);
     }
 
     public static String disasmCcondS(int cconds, int fs, int ft) {
@@ -939,7 +967,7 @@ public class Common {
     }
 
 
-    protected static Instruction[] m_instances = new Instruction[252];
+    protected static Instruction[] m_instances = new Instruction[254];
 
     public static final Instruction[] instructions() {
         return m_instances;

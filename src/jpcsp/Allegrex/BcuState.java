@@ -92,7 +92,7 @@ public class BcuState extends LsuState {
         npc = pc + 4;
     }
 
-    public boolean doJR(int rs) {
+	public boolean doJR(int rs) {
         npc = getRegister(rs);
         return true;
     }
@@ -244,5 +244,9 @@ public class BcuState extends LsuState {
         }
 		pc += 4;
         return false;
+    }
+
+    public void doERET() {
+    	npc = Emulator.getProcessor().cp0.getEpc();
     }
 }

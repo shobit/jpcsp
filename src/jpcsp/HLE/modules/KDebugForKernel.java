@@ -103,7 +103,7 @@ public class KDebugForKernel extends HLEModule {
 
     @HLEUnimplemented
 	@HLEFunction(nid = 0x24C32559, version = 150)
-	public int sceKernelDipsw() {
+	public int sceKernelDipsw(int unknown) {
 		return 0;
 	}
 
@@ -173,13 +173,40 @@ public class KDebugForKernel extends HLEModule {
 
     @HLEUnimplemented
 	@HLEFunction(nid = 0x86010FCB, version = 150)
-	public int sceKernelDipsw_660() {
-		return sceKernelDipsw();
+	public int sceKernelDipsw_660(int unknown) {
+		return sceKernelDipsw(unknown);
 	}
 
     @HLEUnimplemented
 	@HLEFunction(nid = 0xACF427DC, version = 150)
 	public int sceKernelIsDevelopmentToolMode() {
+		return 0;
+	}
+
+    @HLEUnimplemented
+	@HLEFunction(nid = 0xF339073C, version = 150)
+	public int sceKernelDeci2pReferOperations() {
+		return 0;
+	}
+
+    @HLEUnimplemented
+	@HLEFunction(nid = 0x6CB0BDA4, version = 150)
+	public int sceKernelDipswHigh32() {
+    	// Has no parameters
+		return 0;
+	}
+
+    @HLEUnimplemented
+	@HLEFunction(nid = 0x43F0F8AB, version = 150)
+	public int sceKernelDipswLow32() {
+    	// Has no parameters
+		return 0;
+	}
+
+    @HLEUnimplemented
+	@HLEFunction(nid = 0x568DCD25, version = 150)
+	public int sceKernelDipswCpTime() {
+    	// Has no parameters
 		return 0;
 	}
 }

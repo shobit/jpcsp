@@ -27,7 +27,9 @@ public class Modules {
 	//    <module class name>Module
 	// This is required by the compiler (see CompilerContext.loadModule()).
     public static IoFileMgrForUser IoFileMgrForUserModule = new IoFileMgrForUser();
+    public static IoFileMgrForKernel IoFileMgrForKernelModule = new IoFileMgrForKernel();
     public static ThreadManForUser ThreadManForUserModule = new ThreadManForUser();
+    public static ThreadManForKernel ThreadManForKernelModule = new ThreadManForKernel();
     public static SysMemUserForUser SysMemUserForUserModule = new SysMemUserForUser();
     public static SysMemForKernel SysMemForKernelModule = new SysMemForKernel();
     public static InterruptManager InterruptManagerModule = new InterruptManager();
@@ -52,6 +54,7 @@ public class Modules {
     public static sceAudio sceAudioModule = new sceAudio();
     public static sceImpose sceImposeModule = new sceImpose();
     public static sceSuspendForUser sceSuspendForUserModule = new sceSuspendForUser();
+    public static sceSuspendForKernel sceSuspendForKernelModule = new sceSuspendForKernel();
     public static sceDmac sceDmacModule = new sceDmac();
     public static sceSasCore sceSasCoreModule = new sceSasCore();
     public static sceHprm sceHprmModule = new sceHprm();
@@ -150,6 +153,22 @@ public class Modules {
     public static sceSyscon sceSysconModule = new sceSyscon();
     public static sceLed sceLedModule = new sceLed();
     public static sceSysreg sceSysregModule = new sceSysreg();
+    public static scePsheet scePsheetModule = new scePsheet();
+    public static sceUmdMan sceUmdManModule = new sceUmdMan();
+    public static sceCodepage sceCodepageModule = new sceCodepage();
+    public static sceMSstor sceMSstorModule = new sceMSstor();
+    public static sceAta sceAtaModule = new sceAta();
+    public static sceGpio sceGpioModule = new sceGpio();
+    public static sceNand sceNandModule = new sceNand();
+    public static sceBSMan sceBSManModule = new sceBSMan();
+    public static mp4msv mp4msvModule = new mp4msv();
+    public static memlmd memlmdModule = new memlmd();
+    public static reboot rebootModule = new reboot();
+    public static sceI2c sceI2cModule = new sceI2c();
+    public static scePwm scePwmModule = new scePwm();
+    public static sceLcdc sceLcdcModule = new sceLcdc();
+    public static sceDmacplus sceDmacplusModule = new sceDmacplus();
+    public static sceDdr sceDdrModule = new sceDdr();
 
     public static Logger log = Logger.getLogger("hle");
 

@@ -40,7 +40,7 @@ public class Profiler {
     private static final HashMap<Integer, Long> callCounts = new HashMap<Integer, Long>();
     private static final HashMap<Integer, Long> instructionCounts = new HashMap<Integer, Long>();
     private static final HashMap<Integer, Long> backBranchCounts = new HashMap<Integer, Long>();
-    private static final Long zero = new Long(0);
+    private static final Long zero = 0L;
     private static final int detailedCodeBlockLogThreshold = 50;
     private static final int codeLogMaxLength = 700;
     private static final int backBranchMaxLength = 100;
@@ -249,6 +249,9 @@ public class Profiler {
             long count1 = backBranchCounts.get(address1);
             long count2 = backBranchCounts.get(address2);
 
+            if (count1 == count2) {
+            	return 0;
+            }
             return (count2 > count1 ? 1 : -1);
         }
     }

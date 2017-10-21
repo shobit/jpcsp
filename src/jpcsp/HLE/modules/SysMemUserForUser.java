@@ -14,11 +14,13 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
-
 package jpcsp.HLE.modules;
 
 import static jpcsp.Allegrex.Common._a1;
 import static jpcsp.Allegrex.Common._t3;
+import static jpcsp.HLE.modules.sceSuspendForUser.KERNEL_VOLATILE_MEM_SIZE;
+import static jpcsp.HLE.modules.sceSuspendForUser.KERNEL_VOLATILE_MEM_START;
+
 import jpcsp.HLE.BufferInfo;
 import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
@@ -150,11 +152,10 @@ public class SysMemUserForUser extends HLEModule {
 		}
 
 		if (!preserveKernelMemory) {
-			int vshellSize = 0x400000;
 	        // free memory chunks for each partition
 	        freeMemoryChunks = new MemoryChunkList[6];
-	        freeMemoryChunks[KERNEL_PARTITION_ID] = createMemoryChunkList(MemoryMap.START_KERNEL, MemoryMap.END_KERNEL - vshellSize);
-	        freeMemoryChunks[VSHELL_PARTITION_ID] = createMemoryChunkList(MemoryMap.END_KERNEL + 1 - vshellSize, MemoryMap.END_KERNEL);
+	        freeMemoryChunks[KERNEL_PARTITION_ID] = createMemoryChunkList(MemoryMap.START_KERNEL, KERNEL_VOLATILE_MEM_START - 1);
+	        freeMemoryChunks[VSHELL_PARTITION_ID] = createMemoryChunkList(KERNEL_VOLATILE_MEM_START, KERNEL_VOLATILE_MEM_START + KERNEL_VOLATILE_MEM_SIZE - 1);
 		}
         freeMemoryChunks[USER_PARTITION_ID] = createMemoryChunkList(MemoryMap.START_USERSPACE, MemoryMap.END_USERSPACE);
 	}
@@ -203,7 +204,7 @@ public class SysMemUserForUser extends HLEModule {
         public final int type;
         public int size;
         public int allocatedSize;
-        public final int addr;
+        public int addr;
 
         public SysMemInfo(int partitionid, String name, int type, int size, int allocatedSize, int addr) {
             this.partitionid = partitionid;
@@ -300,7 +301,7 @@ public class SysMemUserForUser extends HLEModule {
 	        		allocatedAddress = freeMemoryChunk.allocHigh(allocatedSize, alignment);
 	        		break;
 	        	case PSP_SMEM_Addr:
-	        		allocatedAddress = freeMemoryChunk.alloc(addr, allocatedSize);
+	        		allocatedAddress = freeMemoryChunk.alloc(addr & Memory.addressMask, allocatedSize);
 	        		break;
 	    		default:
 	    			log.warn(String.format("malloc: unknown type %s", getTypeName(type)));
@@ -351,11 +352,19 @@ public class SysMemUserForUser extends HLEModule {
     	return result.toString();
     }
 
+    private void free(int partitionId, int addr, int size) {
+    	MemoryChunk memoryChunk = new MemoryChunk(addr, size);
+    	freeMemoryChunks[partitionId].add(memoryChunk);
+    }
+
+    private int alloc(int partitionId, int addr, int size) {
+		return freeMemoryChunks[partitionId].alloc(addr, size);
+    }
+
     public void free(SysMemInfo info) {
     	if (info != null) {
     		info.free();
-	    	MemoryChunk memoryChunk = new MemoryChunk(info.addr, info.allocatedSize);
-	    	freeMemoryChunks[info.partitionid].add(memoryChunk);
+    		free(info.partitionid, info.addr, info.allocatedSize);
 
 	    	if (log.isDebugEnabled()) {
 	    		log.debug(String.format("free %s", info.toString()));
@@ -394,6 +403,16 @@ public class SysMemUserForUser extends HLEModule {
     	return blockList.get(uid);
     }
 
+    public SysMemInfo getSysMemInfoByAddress(int address) {
+    	for (SysMemInfo info : blockList.values()) {
+    		if (address >= info.addr && address < info.addr + info.size) {
+    			return info;
+    		}
+    	}
+
+    	return null;
+    }
+
     public SysMemInfo separateMemoryBlock(SysMemInfo info, int size) {
     	int newAddr = info.addr + size;
     	int newSize = info.size - size;
@@ -407,6 +426,42 @@ public class SysMemUserForUser extends HLEModule {
     	info.allocatedSize -= newAllocatedSize;
 
     	return newSysMemInfo;
+    }
+
+    public boolean resizeMemoryBlock(SysMemInfo info, int leftShift, int rightShift) {
+    	if (rightShift < 0) {
+    		int sizeToFree = -rightShift;
+    		free(info.partitionid, info.addr + info.allocatedSize - sizeToFree, sizeToFree);
+    		info.allocatedSize -= sizeToFree;
+    		info.size -= sizeToFree;
+    	} else if (rightShift > 0) {
+    		int sizeToExtend = rightShift;
+    		int extendAddr = alloc(info.partitionid, info.addr + info.allocatedSize, sizeToExtend);
+    		if (extendAddr == 0) {
+    			return false;
+    		}
+    		info.allocatedSize += sizeToExtend;
+    		info.size += sizeToExtend;
+    	}
+
+    	if (leftShift < 0) {
+    		int sizeToFree = -leftShift;
+    		free(info.partitionid, info.addr, sizeToFree);
+    		info.addr += sizeToFree;
+    		info.size -= sizeToFree;
+    		info.allocatedSize -= sizeToFree;
+    	} else if (leftShift > 0) {
+    		int sizeToExtend = leftShift;
+    		int extendAddr = alloc(info.partitionid, info.addr - sizeToExtend, sizeToExtend);
+    		if (extendAddr == 0) {
+    			return false;
+    		}
+    		info.addr -= sizeToExtend;
+    		info.allocatedSize += sizeToExtend;
+    		info.size += sizeToExtend;
+    	}
+
+    	return true;
     }
 
     /** @param firmwareVersion : in this format: ABB, where A = major and B = minor, for example 271 */
@@ -497,7 +552,12 @@ public class SysMemUserForUser extends HLEModule {
 				if (parameterFormat.startsWith("%s")) {
 					// Convert an integer address to a String by reading
 					// the String at the given address
-					formatParameters[parameterIndex] = Utilities.readStringZ(((Integer) formatParameters[parameterIndex]).intValue());
+					int address = ((Integer) formatParameters[parameterIndex]).intValue();
+					if (address == 0) {
+						formatParameters[parameterIndex] = "(null)";
+					} else {
+						formatParameters[parameterIndex] = Utilities.readStringZ(address);
+					}
 				}
     		}
 
@@ -614,6 +674,11 @@ public class SysMemUserForUser extends HLEModule {
         }
 
         return info.addr;
+	}
+
+	@HLEFunction(nid = 0xF12A62F7, version = 660)
+	public int sceKernelGetBlockHeadAddr_660(int uid) {
+		return sceKernelGetBlockHeadAddr(uid);
 	}
 
 	@HLEFunction(nid = 0x13A5ABEF, version = 150)

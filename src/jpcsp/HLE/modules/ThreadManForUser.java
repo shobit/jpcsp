@@ -36,6 +36,7 @@ import static jpcsp.HLE.kernel.types.SceKernelErrors.ERROR_KERNEL_THREAD_IS_NOT_
 import static jpcsp.HLE.kernel.types.SceKernelErrors.ERROR_KERNEL_THREAD_IS_TERMINATED;
 import static jpcsp.HLE.kernel.types.SceKernelErrors.ERROR_KERNEL_WAIT_STATUS_RELEASED;
 import static jpcsp.HLE.kernel.types.SceKernelErrors.ERROR_KERNEL_WAIT_TIMEOUT;
+import static jpcsp.HLE.kernel.types.SceKernelErrors.ERROR_OUT_OF_MEMORY;
 import static jpcsp.HLE.kernel.types.SceKernelThreadEventHandlerInfo.THREAD_EVENT_CREATE;
 import static jpcsp.HLE.kernel.types.SceKernelThreadEventHandlerInfo.THREAD_EVENT_DELETE;
 import static jpcsp.HLE.kernel.types.SceKernelThreadEventHandlerInfo.THREAD_EVENT_EXIT;
@@ -69,6 +70,9 @@ import static jpcsp.HLE.kernel.types.SceKernelThreadInfo.PSP_WAIT_THREAD_END;
 import static jpcsp.HLE.kernel.types.SceKernelThreadInfo.PSP_WAIT_VPL;
 import static jpcsp.HLE.modules.SysMemUserForUser.KERNEL_PARTITION_ID;
 import static jpcsp.HLE.modules.SysMemUserForUser.USER_PARTITION_ID;
+import static jpcsp.Memory.addressMask;
+import static jpcsp.MemoryMap.END_KERNEL;
+import static jpcsp.MemoryMap.START_KERNEL;
 import static jpcsp.util.Utilities.alignUp;
 import static jpcsp.util.Utilities.writeStringZ;
 
@@ -102,11 +106,13 @@ import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.CheckArgument;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
+import jpcsp.HLE.HLEModuleFunction;
 import jpcsp.HLE.HLEUnimplemented;
 import jpcsp.HLE.Modules;
 import jpcsp.HLE.PspString;
 import jpcsp.HLE.SceKernelErrorException;
 import jpcsp.HLE.StringInfo;
+import jpcsp.HLE.SyscallHandler;
 import jpcsp.HLE.TPointer;
 import jpcsp.HLE.TPointer32;
 import jpcsp.HLE.TPointer64;
@@ -211,6 +217,8 @@ public class ThreadManForUser extends HLEModule {
     private static final boolean LOG_CONTEXT_SWITCHING = true;
     private static final boolean LOG_INSTRUCTIONS = false;
     public boolean exitCalled = false;
+    private int freeInternalUserMemoryStart;
+    private int freeInternalUserMemoryEnd;
 
     // see sceKernelGetThreadmanIdList
     public final static int SCE_KERNEL_TMID_Thread = 1;
@@ -289,11 +297,11 @@ public class ThreadManForUser extends HLEModule {
 
         private static class ThreadStatistics implements Comparable<ThreadStatistics> {
             public String name;
-            public long runClocks;
+            public Long runClocks;
 
             @Override
 			public int compareTo(ThreadStatistics o) {
-				return -(new Long(runClocks).compareTo(o.runClocks));
+				return -(runClocks.compareTo(o.runClocks));
 			}
 
             public String getQuotedName() {
@@ -594,17 +602,19 @@ public class ThreadManForUser extends HLEModule {
     }
 
     private static class AfterSceKernelExtendThreadStackAction implements IAction {
-
         private SceKernelThreadInfo thread;
         private int savedPc;
         private int savedSp;
         private int savedRa;
+        private int returnValue;
+        private SysMemInfo extendedStackSysMemInfo;
 
-        public AfterSceKernelExtendThreadStackAction(SceKernelThreadInfo thread, int savedPc, int savedSp, int savedRa) {
+        public AfterSceKernelExtendThreadStackAction(SceKernelThreadInfo thread, int savedPc, int savedSp, int savedRa, SysMemInfo extendedStackSysMemInfo) {
             this.thread = thread;
             this.savedPc = savedPc;
             this.savedSp = savedSp;
             this.savedRa = savedRa;
+            this.extendedStackSysMemInfo = extendedStackSysMemInfo;
         }
 
         @Override
@@ -612,16 +622,21 @@ public class ThreadManForUser extends HLEModule {
             CpuState cpu = Emulator.getProcessor().cpu;
 
             if (log.isDebugEnabled()) {
-                log.debug(String.format("AfterSceKernelExtendThreadStackAction savedSp=0x%08X, savedRa=0x%08X", savedSp, savedRa));
+                log.debug(String.format("AfterSceKernelExtendThreadStackAction savedSp=0x%08X, savedRa=0x%08X, $v0=0x%08X", savedSp, savedRa, cpu._v0));
             }
 
             cpu.pc = savedPc;
             cpu._sp = savedSp;
             cpu._ra = savedRa;
+            returnValue = cpu._v0;
 
             // The return value in $v0 of the entryAdd is passed back as return value
             // of sceKernelExtendThreadStack.
-            thread.freeExtendedStack();
+            thread.freeExtendedStack(extendedStackSysMemInfo);
+        }
+
+        public int getReturnValue() {
+        	return returnValue;
         }
     }
 
@@ -639,8 +654,7 @@ public class ThreadManForUser extends HLEModule {
         callbackMap = new HashMap<Integer, pspBaseCallback>();
         callbackManager.Initialize();
 
-        // Reserve the memory used by the internal handlers
-        Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.KERNEL_PARTITION_ID, "ThreadMan-InternalHandlers", SysMemUserForUser.PSP_SMEM_Addr, INTERNAL_THREAD_ADDRESS_SIZE, INTERNAL_THREAD_ADDRESS_START);
+        reserveInternalMemory();
         installIdleThreads();
         installThreadExitHandler();
         installCallbackExitHandler();
@@ -699,10 +713,12 @@ public class ThreadManForUser extends HLEModule {
     }
 
     public SceKernelThreadInfo getRootThread(SceModule module) {
-    	for (SceKernelThreadInfo thread : threadMap.values()) {
-    		if (rootThreadName.equals(thread.name) && thread.moduleid == module.modid) {
-    			return thread;
-    		}
+    	if (threadMap != null) {
+	    	for (SceKernelThreadInfo thread : threadMap.values()) {
+	    		if (rootThreadName.equals(thread.name) && (module == null || thread.moduleid == module.modid)) {
+	    			return thread;
+	    		}
+	    	}
     	}
 
     	return null;
@@ -724,7 +740,7 @@ public class ThreadManForUser extends HLEModule {
         }
 
         // For a kernel module, the stack is allocated in the kernel partition
-        int rootMpidStack = module.mpiddata > 0 ? module.mpiddata : USER_PARTITION_ID;
+        int rootMpidStack = module != null && module.mpiddata > 0 ? module.mpiddata : USER_PARTITION_ID;
 
         int rootInitPriority = 0x20;
         // Use the module_start_thread_priority when this information was present in the ELF file
@@ -808,12 +824,16 @@ public class ThreadManForUser extends HLEModule {
     	return (AllegrexOpcodes.LUI << 26) | (rd << 16) | (imm16 & 0xFFFF);
     }
 
-    public static int ADDIU(int rs, int rt, int imm16) {
+    public static int ADDIU(int rt, int rs, int imm16) {
     	return (AllegrexOpcodes.ADDIU << 26) | (rs << 21) | (rt << 16) | (imm16 & 0xFFFF);
     }
 
     public static int SW(int rt, int base, int imm16) {
     	return (AllegrexOpcodes.SW << 26) | (base << 21) | (rt << 16) | (imm16 & 0xFFFF);
+    }
+
+    public static int SB(int rt, int rs, int imm16) {
+    	return (AllegrexOpcodes.SB << 26) | (rs << 21) | (rt << 16) | (imm16 & 0xFFFF);
     }
 
     public static int LW(int rt, int base, int imm16) {
@@ -828,9 +848,22 @@ public class ThreadManForUser extends HLEModule {
     	return (AllegrexOpcodes.J << 26) | ((address >> 2) & 0x03FFFFFF);
     }
 
-    private int SYSCALL(String functionName) {
+    public static int SYSCALL(int syscallCode) {
+    	return (AllegrexOpcodes.SPECIAL << 26) | AllegrexOpcodes.SYSCALL | (syscallCode << 6);
+    }
+
+    public static int SYSCALL(HLEModule hleModule, String functionName) {
+    	HLEModuleFunction hleModuleFunction = hleModule.getHleFunctionByName(functionName);
+    	if (hleModuleFunction == null) {
+    		return SYSCALL(SyscallHandler.syscallUnmappedImport);
+    	}
+
     	// syscall [functionName]
-    	return (AllegrexOpcodes.SPECIAL << 26) | AllegrexOpcodes.SYSCALL | (getHleFunctionByName(functionName).getSyscallCode() << 6);
+    	return SYSCALL(hleModuleFunction.getSyscallCode());
+    }
+
+    private int SYSCALL(String functionName) {
+    	return SYSCALL(this, functionName);
     }
 
     public static int JR() {
@@ -843,14 +876,39 @@ public class ThreadManForUser extends HLEModule {
     	return (AllegrexOpcodes.BEQ << 26) | (_zr << 21) | (_zr << 16) | (destination & 0x0000FFFF);
     }
 
+    private void reserveInternalMemory() {
+        // Reserve the memory used by the internal handlers
+        SysMemInfo internalMemInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.KERNEL_PARTITION_ID, "ThreadMan-InternalHandlers", SysMemUserForUser.PSP_SMEM_Addr, INTERNAL_THREAD_ADDRESS_SIZE, INTERNAL_THREAD_ADDRESS_START);
+        if (internalMemInfo == null) {
+        	log.error(String.format("Cannot reserve internal memory at 0x%08X", INTERNAL_THREAD_ADDRESS_START));
+        }
+
+        // This memory is always reserved on a real PSP
+        int internalUserMemorySize = 0x4000;
+        SysMemInfo rootMemInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.USER_PARTITION_ID, "ThreadMan-RootMem", SysMemUserForUser.PSP_SMEM_Addr, internalUserMemorySize, MemoryMap.START_USERSPACE);
+        freeInternalUserMemoryStart = rootMemInfo.addr;
+        freeInternalUserMemoryEnd = freeInternalUserMemoryStart + internalUserMemorySize;
+    }
+
+    public int allocateInternalUserMemory(int size) {
+    	// Align on a multiple of 4 bytes
+    	size = alignUp(size, 3);
+
+    	if (freeInternalUserMemoryStart + size > freeInternalUserMemoryEnd) {
+    		log.error(String.format("allocateInternalUserMemory not enough free memory available, requested size=0x%X, available size=0x%X", size, freeInternalUserMemoryEnd - freeInternalUserMemoryStart));
+    		return 0;
+    	}
+
+    	int allocatedMem = freeInternalUserMemoryStart;
+    	freeInternalUserMemoryStart += size;
+
+    	return allocatedMem;
+    }
+
     /**
      * Generate 2 idle threads which can toggle between each other when there are no ready threads
      */
     private void installIdleThreads() {
-        // This memory is always reserved on a real PSP
-        SysMemInfo info = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.USER_PARTITION_ID, "ThreadMan-RootMem", SysMemUserForUser.PSP_SMEM_Addr, 0x4000, MemoryMap.START_USERSPACE);
-        int reservedMem = info.addr;
-
         IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(IDLE_THREAD_ADDRESS, 0x20, 4);
         memoryWriter.writeNext(MOVE(_a0, _zr));
         memoryWriter.writeNext(SYSCALL("sceKernelDelayThread"));
@@ -858,19 +916,20 @@ public class ThreadManForUser extends HLEModule {
         memoryWriter.writeNext(NOP());
         memoryWriter.flush();
 
-        // lowest allowed priority is 0x77, so we are ok at 0x7f
+        int idleThreadStackSize = 0x1000;
+        // Lowest allowed priority is 0x77, so we are fine at 0x7F.
         // Allocate a stack because interrupts can be processed by the
         // idle thread, using its stack.
         // The stack is allocated into the reservedMem area.
-        idle0 = new SceKernelThreadInfo("idle0", IDLE_THREAD_ADDRESS | 0x80000000, 0x7f, 0, PSP_THREAD_ATTR_KERNEL, KERNEL_PARTITION_ID);
-        idle0.setSystemStack(reservedMem, 0x2000);
+        idle0 = new SceKernelThreadInfo("idle0", IDLE_THREAD_ADDRESS | 0x80000000, 0x7F, 0, PSP_THREAD_ATTR_KERNEL, KERNEL_PARTITION_ID);
+        idle0.setSystemStack(allocateInternalUserMemory(idleThreadStackSize), idleThreadStackSize);
         idle0.reset();
         idle0.exitStatus = ERROR_KERNEL_THREAD_IS_NOT_DORMANT;
         threadMap.put(idle0.uid, idle0);
         hleChangeThreadState(idle0, PSP_THREAD_READY);
 
-        idle1 = new SceKernelThreadInfo("idle1", IDLE_THREAD_ADDRESS | 0x80000000, 0x7f, 0, PSP_THREAD_ATTR_KERNEL, KERNEL_PARTITION_ID);
-        idle1.setSystemStack(reservedMem + 0x2000, 0x2000);
+        idle1 = new SceKernelThreadInfo("idle1", IDLE_THREAD_ADDRESS | 0x80000000, 0x7F, 0, PSP_THREAD_ATTR_KERNEL, KERNEL_PARTITION_ID);
+        idle1.setSystemStack(allocateInternalUserMemory(idleThreadStackSize), idleThreadStackSize);
         idle1.reset();
         idle1.exitStatus = ERROR_KERNEL_THREAD_IS_NOT_DORMANT;
         threadMap.put(idle1.uid, idle1);
@@ -886,12 +945,24 @@ public class ThreadManForUser extends HLEModule {
         memoryWriter.flush();
     }
 
-    private void installCallbackExitHandler() {
-        IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(CALLBACK_EXIT_HANDLER_ADDRESS, 0x10, 4);
-        memoryWriter.writeNext(SYSCALL("hleKernelExitCallback"));
+    public static void installHLESyscall(int address, HLEModule hleModule, String name) {
+        IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(address, 12, 4);
+        memoryWriter.writeNext(SYSCALL(hleModule, name));
         memoryWriter.writeNext(JR());
         memoryWriter.writeNext(NOP());
         memoryWriter.flush();
+    }
+
+    private void installHLESyscall(int address, String name) {
+        IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(address, 12, 4);
+        memoryWriter.writeNext(SYSCALL(name));
+        memoryWriter.writeNext(JR());
+        memoryWriter.writeNext(NOP());
+        memoryWriter.flush();
+    }
+
+    private void installCallbackExitHandler() {
+    	installHLESyscall(CALLBACK_EXIT_HANDLER_ADDRESS, "hleKernelExitCallback");
     }
 
     private void installLoopHandler(String hleFunctionName, int address) {
@@ -957,11 +1028,7 @@ public class ThreadManForUser extends HLEModule {
     }
 
     private void installWlanSendCallback() {
-        IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(WLAN_SEND_CALLBACK_ADDRESS, 0x10, 4);
-        memoryWriter.writeNext(SYSCALL("hleWlanSendCallback"));
-        memoryWriter.writeNext(JR());
-        memoryWriter.writeNext(NOP());
-        memoryWriter.flush();
+    	installHLESyscall(WLAN_SEND_CALLBACK_ADDRESS, "hleWlanSendCallback");
     }
 
     @HLEFunction(nid = HLESyscallNid, version = 150)
@@ -970,11 +1037,7 @@ public class ThreadManForUser extends HLEModule {
     }
 
     private void installWlanUpCallback() {
-        IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(WLAN_UP_CALLBACK_ADDRESS, 0x10, 4);
-        memoryWriter.writeNext(SYSCALL("hleWlanUpCallback"));
-        memoryWriter.writeNext(JR());
-        memoryWriter.writeNext(NOP());
-        memoryWriter.flush();
+    	installHLESyscall(WLAN_UP_CALLBACK_ADDRESS, "hleWlanUpCallback");
     }
 
     @HLEFunction(nid = HLESyscallNid, version = 150)
@@ -983,11 +1046,7 @@ public class ThreadManForUser extends HLEModule {
     }
 
     private void installWlanDownCallback() {
-        IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(WLAN_DOWN_CALLBACK_ADDRESS, 0x10, 4);
-        memoryWriter.writeNext(SYSCALL("hleWlanDownCallback"));
-        memoryWriter.writeNext(JR());
-        memoryWriter.writeNext(NOP());
-        memoryWriter.flush();
+    	installHLESyscall(WLAN_DOWN_CALLBACK_ADDRESS, "hleWlanDownCallback");
     }
 
     @HLEFunction(nid = HLESyscallNid, version = 150)
@@ -996,11 +1055,7 @@ public class ThreadManForUser extends HLEModule {
     }
 
     private void installWlanIoctlCallback() {
-        IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(WLAN_IOCTL_CALLBACK_ADDRESS, 0x10, 4);
-        memoryWriter.writeNext(SYSCALL("hleWlanIoctlCallback"));
-        memoryWriter.writeNext(JR());
-        memoryWriter.writeNext(NOP());
-        memoryWriter.flush();
+    	installHLESyscall(WLAN_IOCTL_CALLBACK_ADDRESS, "hleWlanIoctlCallback");
     }
 
     @HLEFunction(nid = HLESyscallNid, version = 150)
@@ -1267,6 +1322,12 @@ public class ThreadManForUser extends HLEModule {
     }
 
     public boolean isKernelMode() {
+    	// Running code in the kernel memory area?
+    	int pc = RuntimeContext.getPc() & addressMask;
+    	if (pc >= (START_KERNEL & addressMask) && pc <= (END_KERNEL & addressMask)) {
+    		return true;
+    	}
+
     	return currentThread.isKernelMode();
     }
 
@@ -2070,6 +2131,30 @@ public class ThreadManForUser extends HLEModule {
      * @param address     address of the callback
      * @param afterAction action to be executed after the completion of the callback
      * @param returnVoid  the callback has a void return value, i.e. $v0/$v1 have to be restored
+     * @param registerA0  first parameter of the callback ($a0)
+     * @param registerA1  second parameter of the callback ($a1)
+     * @param registerA2  third parameter of the callback ($a2)
+     * @param registerT0  fifth parameter of the callback ($t0)
+     * @param registerT1  sixth parameter of the callback ($t1)
+     */
+    public void executeCallback(SceKernelThreadInfo thread, int address, IAction afterAction, boolean returnVoid, int registerA0, int registerA1, int registerA2, int registerA3, int registerT0, int registerT1) {
+        if (log.isDebugEnabled()) {
+            log.debug(String.format("Execute callback 0x%08X($a0=0x%08X, $a1=0x%08X, $a2=0x%08X, $a3=0x%08X, $t0=0x%08X, $t1=0x%08X), afterAction=%s, returnVoid=%b", address, registerA0, registerA1, registerA2, registerA3, registerT0, registerT1, afterAction, returnVoid));
+        }
+
+        callAddress(thread, address, afterAction, returnVoid, false, new int[]{registerA0, registerA1, registerA2, registerA3, registerT0, registerT1});
+    }
+
+    /**
+     * Trigger a call to a callback in the context of a thread.
+     * This call can return before the completion of the callback. Use the
+     * "afterAction" parameter to trigger some actions that need to be executed
+     * after the callback (e.g. to evaluate a return value in cpu.gpr[2]).
+     *
+     * @param thread      the callback has to be executed by this thread (null means the currentThread)
+     * @param address     address of the callback
+     * @param afterAction action to be executed after the completion of the callback
+     * @param returnVoid  the callback has a void return value, i.e. $v0/$v1 have to be restored
      * @param registers   parameters of the callback
      */
     public void executeCallback(SceKernelThreadInfo thread, int address, IAction afterAction, boolean returnVoid, int[] registers) {
@@ -2221,7 +2306,7 @@ public class ThreadManForUser extends HLEModule {
 
     	if (id != SysMemUserForUser.USER_PARTITION_ID && id != SysMemUserForUser.VSHELL_PARTITION_ID) {
     		// Accept KERNEL_PARTITION_ID for threads running in kernel mode.
-    		if (id != SysMemUserForUser.KERNEL_PARTITION_ID || !currentThread.isKernelMode()) {
+    		if (id != SysMemUserForUser.KERNEL_PARTITION_ID || !isKernelMode()) {
     			throw new SceKernelErrorException(SceKernelErrors.ERROR_KERNEL_ILLEGAL_PERMISSION);
     		}
     	}
@@ -2235,6 +2320,9 @@ public class ThreadManForUser extends HLEModule {
         	sceKernelThreadOptParam.read(Emulator.getMemory(), option_addr);
         	if (sceKernelThreadOptParam.sizeof() >= 8) {
         		mpidStack = sceKernelThreadOptParam.stackMpid;
+        	}
+        	if (log.isDebugEnabled()) {
+        		log.debug(String.format("sceKernelCreateThread options: %s", sceKernelThreadOptParam));
         	}
         }
 
@@ -3961,7 +4049,7 @@ public class ThreadManForUser extends HLEModule {
         }
 
         if (currentThread.isKernelMode()) {
-        	// Value priority range in user mode: [1..126]
+        	// Value priority range in kernel mode: [1..126]
         	if (priority < 1 || priority >= 127) {
         		if (log.isDebugEnabled()) {
         			log.debug(String.format("checkThreadPriority priority:0x%x is outside of valid range in kernel mode", priority));
@@ -4199,55 +4287,55 @@ public class ThreadManForUser extends HLEModule {
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-thread", false)) {
             return SCE_KERNEL_TMID_Thread;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-sema", false)) {
         	return SCE_KERNEL_TMID_Semaphore;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-eventflag", false)) {
         	return SCE_KERNEL_TMID_EventFlag;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-Mbx", false)) {
         	return SCE_KERNEL_TMID_Mbox;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-Vpl", false)) {
         	return SCE_KERNEL_TMID_Vpl;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-Fpl", false)) {
         	return SCE_KERNEL_TMID_Fpl;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-MsgPipe", false)) {
         	return SCE_KERNEL_TMID_Mpipe;
         }
-        
-        if (SceUidManager.checkUidPurpose(uid, "ThreadMan-callback", false)) {
+
+        if (SceUidManager.checkUidPurpose(uid, pspBaseCallback.callbackUidPurpose, false)) {
         	return SCE_KERNEL_TMID_Callback;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-ThreadEventHandler", false)) {
         	return SCE_KERNEL_TMID_ThreadEventHandler;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-Alarm", false)) {
         	return SCE_KERNEL_TMID_Alarm;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-VTimer", false)) {
         	return SCE_KERNEL_TMID_VTimer;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-Mutex", false)) {
         	return SCE_KERNEL_TMID_Mutex;
         }
-        
+
         if (SceUidManager.checkUidPurpose(uid, "ThreadMan-LwMutex", false)) {
         	return SCE_KERNEL_TMID_LwMutex;
         }
-        
+
         return SceKernelErrors.ERROR_KERNEL_ILLEGAL_ARGUMENT;
     }
 
@@ -4356,34 +4444,40 @@ public class ThreadManForUser extends HLEModule {
         // When the code at entryAddr returns, sceKernelExtendThreadStack also returns
         // with the return value of entryAddr.
         SceKernelThreadInfo thread = getCurrentThread();
-        int extendedStackAddr = thread.extendStack(size);
-        IAction afterAction = new AfterSceKernelExtendThreadStackAction(thread, cpu.pc, cpu._sp, cpu._ra);
+        SysMemInfo extendedStackSysMemInfo = thread.extendStack(size);
+        if (extendedStackSysMemInfo == null) {
+        	return ERROR_OUT_OF_MEMORY;
+        }
+        AfterSceKernelExtendThreadStackAction afterAction = new AfterSceKernelExtendThreadStackAction(thread, cpu.pc, cpu._sp, cpu._ra, extendedStackSysMemInfo);
         cpu._a0 = entryParameter;
-        cpu._sp = extendedStackAddr + size;
+        cpu._sp = extendedStackSysMemInfo.addr + size;
         callAddress(entryAddr.getAddress(), afterAction, false);
 
-        return 0;
+        return afterAction.getReturnValue();
     }
 
     @HLEFunction(nid = 0xBC31C1B9, version = 150, checkInsideInterrupt = true)
     public int sceKernelExtendKernelStack(CpuState cpu, @CheckArgument("checkStackSize") int size, TPointer entryAddr, int entryParameter) {
         // sceKernelExtendKernelStack executes the code at entryAddr using a larger
-        // stack. The entryParameter is  passed as the only parameter ($a0) to
+        // stack. The entryParameter is passed as the only parameter ($a0) to
         // the code at entryAddr.
         // When the code at entryAddr returns, sceKernelExtendKernelStack also returns
         // with the return value of entryAddr.
         SceKernelThreadInfo thread = getCurrentThread();
-        int extendedStackAddr = thread.extendStack(size);
-        IAction afterAction = new AfterSceKernelExtendThreadStackAction(thread, cpu.pc, cpu._sp, cpu._ra);
+        SysMemInfo extendedStackSysMemInfo = thread.extendStack(size);
+        if (extendedStackSysMemInfo == null) {
+        	return ERROR_OUT_OF_MEMORY;
+        }
+        AfterSceKernelExtendThreadStackAction afterAction = new AfterSceKernelExtendThreadStackAction(thread, cpu.pc, cpu._sp, cpu._ra, extendedStackSysMemInfo);
         cpu._a0 = entryParameter;
-        cpu._sp = extendedStackAddr + size;
+        cpu._sp = extendedStackSysMemInfo.addr + size;
         callAddress(entryAddr.getAddress(), afterAction, false);
 
-        return 0;
+        return afterAction.getReturnValue();
     }
 
     @HLEFunction(nid = 0x8DAFF657, version = 620)
-    public int sceKernelCreateTlspl(PspString name, int partitionId, int attr, int blockSize, int numberBlocks, @CanBeNull TPointer optionsAddr) {
+    public int sceKernelCreateTlspl(String name, int partitionId, int attr, int blockSize, int numberBlocks, @CanBeNull TPointer optionsAddr) {
         int alignment = 0;
         if (optionsAddr.isNotNull()) {
             int length = optionsAddr.getValue32(0);
@@ -4401,7 +4495,7 @@ public class ThreadManForUser extends HLEModule {
             alignedBlockSize = alignUp(alignedBlockSize, alignment - 1);
         }
 
-        SceKernelTls tls = new SceKernelTls(name.getString(), partitionId, attr, blockSize, alignedBlockSize, numberBlocks, alignment);
+        SceKernelTls tls = new SceKernelTls(name, partitionId, attr, blockSize, alignedBlockSize, numberBlocks, alignment);
         if (tls.getBaseAddress() == 0) {
             return SceKernelErrors.ERROR_OUT_OF_MEMORY;
         }

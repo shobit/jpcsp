@@ -34,7 +34,8 @@ import jpcsp.Allegrex.compiler.nativeCode.NativeCodeInstruction;
 import jpcsp.Allegrex.compiler.nativeCode.NativeCodeManager;
 import jpcsp.Allegrex.compiler.nativeCode.NativeCodeSequence;
 import jpcsp.HLE.HLEModuleFunction;
-import jpcsp.HLE.HLEModuleManager;
+import jpcsp.HLE.kernel.types.IAction;
+import jpcsp.util.Utilities;
 
 import org.apache.log4j.Logger;
 import org.objectweb.asm.ClassVisitor;
@@ -68,6 +69,7 @@ public class CodeBlock {
 	private MemoryRanges memoryRanges = new MemoryRanges();
 	private int flags;
 	private HLEModuleFunction hleFunction;
+	private IAction updateOpcodesAction;
 
 	public CodeBlock(int startAddress, int instanceCount) {
 		this.startAddress = startAddress;
@@ -76,12 +78,14 @@ public class CodeBlock {
 		highestAddress = startAddress;
 	}
 
-	public void addInstruction(int address, int opcode, Instruction insn, boolean isBranchTarget, boolean isBranching, int branchingTo) {
+	public void addInstruction(int address, int opcode, Instruction insn, boolean isBranchTarget, boolean isBranching, int branchingTo, boolean useMMIO) {
 		if (log.isTraceEnabled()) {
 			log.trace(String.format("CodeBlock.addInstruction 0x%X - %s", address, insn.disasm(address, opcode)));
 		}
 
 		CodeInstruction codeInstruction = new CodeInstruction(address, opcode, insn, isBranchTarget, isBranching, branchingTo);
+
+		codeInstruction.setUseMMIO(useMMIO);
 
 		// Insert the codeInstruction in the codeInstructions list
 		// and keep the list sorted by address.
@@ -476,15 +480,10 @@ public class CodeBlock {
 		context.setCodeBlock(this);
 		String className = getInternalClassName();
 		if (log.isDebugEnabled()) {
-			String hleFunctionName = null;
+			String functionName = Utilities.getFunctionNameByAddress(getStartAddress());
 
-			HLEModuleFunction func = HLEModuleManager.getInstance().getFunctionFromAddress(getStartAddress());
-			if (func != null) {
-				hleFunctionName = func.getFunctionName();
-			}
-
-			if (hleFunctionName != null) {
-				log.debug(String.format("Compiling %s (%s)", className, hleFunctionName));
+			if (functionName != null) {
+				log.debug(String.format("Compiling %s (%s)", className, functionName));
 			} else {
 				log.debug(String.format("Compiling %s", className));
 			}
@@ -565,7 +564,8 @@ public class CodeBlock {
         return executable;
     }
 
-    public synchronized IExecutable getExecutable(CompilerContext context) throws ClassFormatError {
+    @SuppressWarnings("deprecation")
+	public synchronized IExecutable getExecutable(CompilerContext context) throws ClassFormatError {
 	    if (executable == null) {
 	        Class<IExecutable> classExecutable = compile(context);
 	        if (classExecutable != null) {
@@ -582,7 +582,8 @@ public class CodeBlock {
 	    return executable;
 	}
 
-    public synchronized IExecutable getInterpretedExecutable(CompilerContext context) {
+    @SuppressWarnings("deprecation")
+	public synchronized IExecutable getInterpretedExecutable(CompilerContext context) {
     	if (executable == null) {
 	        Class<IExecutable> classExecutable = interpret(context);
 	        if (classExecutable != null) {
@@ -659,6 +660,14 @@ public class CodeBlock {
 
 	public boolean isHLEFunction() {
 		return hleFunction != null;
+	}
+
+	public IAction getUpdateOpcodesAction() {
+		return updateOpcodesAction;
+	}
+
+	public void setUpdateOpcodesAction(IAction updateOpcodesAction) {
+		this.updateOpcodesAction = updateOpcodesAction;
 	}
 
 	@Override

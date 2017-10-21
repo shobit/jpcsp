@@ -345,7 +345,8 @@ public class DebuggerMemory extends Memory {
                 message.append(String.format("%04X", mem.read16(address)));
             } else if (width == 32) {
                 int value = mem.read32(address);
-                message.append(String.format("%08X (%f)", value, Float.intBitsToFloat(value)));
+                //message.append(String.format("%08X (%f)", value, Float.intBitsToFloat(value)));
+                message.append(String.format("%08X", value));
             }
         } else {
             int length = width / 8;
@@ -383,7 +384,8 @@ public class DebuggerMemory extends Memory {
         } else if (width == 16) {
             message.append(String.format("%04X", value & 0xFFFF));
         } else if (width == 32) {
-            message.append(String.format("%08X (%f)", value, Float.intBitsToFloat(value)));
+            //message.append(String.format("%08X (%f)", value, Float.intBitsToFloat(value)));
+            message.append(String.format("%08X", value));
         }
         message.append(")");
 
@@ -436,10 +438,30 @@ public class DebuggerMemory extends Memory {
 
     @Override
     protected void memcpy(int destination, int source, int length, boolean checkOverlap) {
-        // Perform memcpy using read8/write8 to check memory access
-        for (int i = 0; i < length; i++) {
-            write8(destination + i, (byte) read8(source + i));
-        }
+    	destination = normalizeAddress(destination);
+		source = normalizeAddress(source);
+
+		// Overlapping address ranges must be correctly handled:
+		//   If source >= destination:
+		//                 [---source---]
+		//       [---destination---]
+		//      => Copy from the head
+		//   If source < destination:
+		//       [---source---]
+		//                 [---destination---]
+		//      => Copy from the tail
+		//
+    	if (!checkOverlap || source >= destination || !areOverlapping(destination, source, length)) {
+    		// Perform memcpy using read8/write8 to check memory access
+            for (int i = 0; i < length; i++) {
+                write8(destination + i, (byte) read8(source + i));
+            }
+    	} else {
+    		// Perform memcpy using read8/write8 to check memory access
+			for (int i = length - 1; i >= 0; i--) {
+				write8(destination + i, (byte) read8(source + i));
+			}
+    	}
     }
 
     @Override

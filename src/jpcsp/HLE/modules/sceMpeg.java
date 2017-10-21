@@ -36,7 +36,6 @@ import jpcsp.HLE.BufferInfo.LengthInfo;
 import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.CheckArgument;
-import jpcsp.HLE.DebugMemory;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLELogging;
 import jpcsp.HLE.HLEModule;
@@ -692,19 +691,24 @@ public class sceMpeg extends HLEModule {
 	            //      - 4 bytes: PTS of the entry point;
 	            //      - 4 bytes: Relative offset of the entry point in the MPEG data.
 	            for (PSMFStream stream : psmfStreams) {
-	            	stream.EPMap = new LinkedList<sceMpeg.PSMFEntry>();
-	            	int EPMapOffset = stream.EPMapOffset;
-		            for (int i = 0; i < stream.EPMapNumEntries; i++) {
-		                int index = read8(mem, bufferAddr, mpegHeader, EPMapOffset + i * 10);
-		                int picOffset = read8(mem, bufferAddr, mpegHeader, EPMapOffset + 1 + i * 10);
-		                int pts = endianSwap32(readUnaligned32(mem, bufferAddr, mpegHeader, EPMapOffset + 2 + i * 10));
-		                int offset = endianSwap32(readUnaligned32(mem, bufferAddr, mpegHeader, EPMapOffset + 6 + i * 10));
-		                PSMFEntry psmfEntry = new PSMFEntry(i, index, picOffset, pts, offset);
-		                stream.EPMap.add(psmfEntry);
-		                if (log.isDebugEnabled()) {
-		                	log.debug(String.format("EPMap stream %d, entry#%d: %s", stream.getStreamChannel(), i, psmfEntry));
-		                }
-		            }
+	            	// Do not read the EPMap when it is too large to be contained in the
+	            	// first 2048 bytes of the header. Applications do usually only provide
+	            	// this amount data.
+	            	if (stream.EPMapOffset + stream.EPMapNumEntries * 10 <= MPEG_HEADER_BUFFER_MINIMUM_SIZE) {
+		            	stream.EPMap = new LinkedList<sceMpeg.PSMFEntry>();
+		            	int EPMapOffset = stream.EPMapOffset;
+			            for (int i = 0; i < stream.EPMapNumEntries; i++) {
+			                int index = read8(mem, bufferAddr, mpegHeader, EPMapOffset + i * 10);
+			                int picOffset = read8(mem, bufferAddr, mpegHeader, EPMapOffset + 1 + i * 10);
+			                int pts = endianSwap32(readUnaligned32(mem, bufferAddr, mpegHeader, EPMapOffset + 2 + i * 10));
+			                int offset = endianSwap32(readUnaligned32(mem, bufferAddr, mpegHeader, EPMapOffset + 6 + i * 10));
+			                PSMFEntry psmfEntry = new PSMFEntry(i, index, picOffset, pts, offset);
+			                stream.EPMap.add(psmfEntry);
+			                if (log.isDebugEnabled()) {
+			                	log.debug(String.format("EPMap stream %d, entry#%d: %s", stream.getStreamChannel(), i, psmfEntry));
+			                }
+			            }
+	            	}
 	            }
             }
         }
@@ -1826,10 +1830,20 @@ public class sceMpeg extends HLEModule {
 					skip(buffer, codeLength);
 					break;
 				case PSMF_MAGIC_LITTLE_ENDIAN:
-					// Skip any PSMF header
-					skip(buffer, PSMF_STREAM_OFFSET_OFFSET - 4);
-					int streamOffset = read32(mem, buffer);
-					skip(buffer, streamOffset - PSMF_STREAM_OFFSET_OFFSET - 4);
+					// Skip any PSMF header, only at the start of the stream
+					if (videoFrameCount == 0) {
+						skip(buffer, PSMF_STREAM_OFFSET_OFFSET - 4);
+						int streamOffset = read32(mem, buffer);
+						skip(buffer, streamOffset - PSMF_STREAM_OFFSET_OFFSET - 4);
+					} else {
+						if (mpegRingbuffer != null) {
+							mpegRingbuffer.consumeAllPackets();
+						}
+						endOfVideo = true;
+						if (log.isDebugEnabled()) {
+							log.debug(String.format("Unknown StartCode 0x%08X at 0x%08X", startCode, buffer.getReadAddr() - 4));
+						}
+					}
 					break;
 				default:
 					endOfVideo = true;
@@ -1959,9 +1973,7 @@ public class sceMpeg extends HLEModule {
 			log.debug(String.format("writeImageABGR addr=0x%08X-0x%08X, frameWidth=%d, frameHeight=%d, width=%d, height=%d, pixelMode=%d", addr, addr + frameWidth * frameHeight * bytesPerPixel, frameWidth, frameHeight, imageWidth, imageHeight, pixelMode));
 		}
 
-		IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(addr, frameWidth * frameHeight * bytesPerPixel, bytesPerPixel);
 		int lineWidth = Math.min(imageWidth, frameWidth);
-		int lineSkip = frameWidth - lineWidth;
 
 		if (pixelMode == TPSM_PIXEL_STORAGE_MODE_32BIT_ABGR8888 && hasMemoryInt()) {
 			// Optimize the most common case
@@ -1974,6 +1986,8 @@ public class sceMpeg extends HLEModule {
 			}
 		} else {
 			// The general case with color format transformation
+			int lineSkip = frameWidth - lineWidth;
+			IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(addr, frameWidth * frameHeight * bytesPerPixel, bytesPerPixel);
 			for (int y = 0; y < frameHeight; y++) {
 				int offset = y * imageWidth;
 				for (int x = 0; x < lineWidth; x++, offset++) {
@@ -1982,8 +1996,8 @@ public class sceMpeg extends HLEModule {
 				}
 				memoryWriter.skip(lineSkip);
 			}
+			memoryWriter.flush();
 		}
-		memoryWriter.flush();
     }
 
     private void writeImageYCbCr(int addr, int imageWidth, int imageHeight, int[] luma, int[] cb, int[] cr) {
@@ -2007,7 +2021,7 @@ public class sceMpeg extends HLEModule {
 			log.debug(String.format("writeImageYCbCr addr=0x%08X-0x%08X, frameWidth=%d, frameHeight=%d", addr, addr + length + length2 + length2, frameWidth, frameHeight));
 		}
 
-		IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(addr, length, 1);
+		IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(addr, length + length2 + length2, 1);
 		for (int i = 0; i < length; i++) {
 			memoryWriter.writeNext(luma[i] & 0xFF);
 		}
@@ -2234,6 +2248,7 @@ public class sceMpeg extends HLEModule {
                 Modules.ThreadManForUserModule.executeCallback(null, mpegRingbuffer.getCallbackAddr(), afterRingbufferPutCallback, false, putDataAddr, putNumberPackets, mpegRingbuffer.getCallbackArgs());
             }
         } else {
+        	afterRingbufferPutCallback.setErrorCode(packetsAdded);
             if (log.isDebugEnabled()) {
                 log.debug(String.format("sceMpegRingbufferPut callback returning packetsAdded=0x%X", packetsAdded));
             }
@@ -2446,6 +2461,7 @@ public class sceMpeg extends HLEModule {
 	        	readNextAudioFrame(audioPesHeader);
 
 	        	if (needUpdateAu) {
+	            	mpegAtracAu.esSize = audioFrameLength == 0 ? 0 : audioFrameLength + 8;
 	    			// Take the PTS from the first PES header and reset it.
 	        		mpegAtracAu.pts = audioPesHeader.getPts();
 	        		audioPesHeader.setDtsPts(UNKNOWN_TIMESTAMP);
@@ -2540,6 +2556,8 @@ public class sceMpeg extends HLEModule {
     }
 
     public int hleMpegAvcDecode(int buffer, int frameWidth, int pixelMode, TPointer32 gotFrameAddr, boolean writeAbgr, TPointer auAddr) {
+    	startVideoDecoderThread();
+
 		int threadUid = Modules.ThreadManForUserModule.getCurrentThreadID();
 		Modules.ThreadManForUserModule.hleBlockCurrentThread(SceKernelThreadInfo.JPCSP_WAIT_VIDEO_DECODER);
 		videoDecoderThread.trigger(threadUid, buffer, frameWidth, pixelMode, gotFrameAddr, writeAbgr, auAddr, Emulator.getClock().microTime() + avcDecodeDelay);
@@ -3331,7 +3349,7 @@ public class sceMpeg extends HLEModule {
      * @return
      */
     @HLEFunction(nid = 0x0E3C2E9D, version = 150, checkInsideInterrupt = true)
-    public int sceMpegAvcDecode(@CheckArgument("checkMpegHandle") int mpeg, @DebugMemory @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=24, usage=Usage.inout) TPointer auAddr, int frameWidth, @CanBeNull TPointer32 bufferAddr, @BufferInfo(usage=Usage.out) TPointer32 gotFrameAddr) {
+    public int sceMpegAvcDecode(@CheckArgument("checkMpegHandle") int mpeg, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=24, usage=Usage.inout) TPointer auAddr, int frameWidth, @CanBeNull TPointer32 bufferAddr, @BufferInfo(usage=Usage.out) TPointer32 gotFrameAddr) {
         int au = auAddr.getValue32();
         int buffer = 0;
         if (bufferAddr.isNotNull()) {
@@ -3906,9 +3924,6 @@ public class sceMpeg extends HLEModule {
         mpegRingbufferAddr = ringbufferAddr;
 
         mpegRingbufferRead();
-        if (log.isDebugEnabled()) {
-            log.debug(String.format("sceMpegRingbufferAvailableSize returning 0x%X, vcount=%d", mpegRingbuffer.getFreePackets(), Modules.sceDisplayModule.getVcount()));
-        }
 
         return mpegRingbuffer.getFreePackets();
     }
@@ -3917,7 +3932,7 @@ public class sceMpeg extends HLEModule {
      * sceMpegNextAvcRpAu - skip one video frame
      * 
      * @param mpeg
-     * @param unknown
+     * @param unknown60
      * 
      * @return
      */

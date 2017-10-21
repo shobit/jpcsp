@@ -103,10 +103,10 @@ import org.lwjgl.opengl.PixelFormat;
 public class sceDisplay extends HLEModule {
     public static Logger log = Modules.getLogger("sceDisplay");
 
-    @SuppressWarnings("serial")
     class AWTGLCanvas_sceDisplay extends AWTGLCanvas {
+		private static final long serialVersionUID = -3808789665048696700L;
 
-        public AWTGLCanvas_sceDisplay() throws LWJGLException {
+		public AWTGLCanvas_sceDisplay() throws LWJGLException {
             super(null, new PixelFormat().withBitsPerPixel(8).withAlphaBits(8).withStencilBits(8).withSamples(antiAliasSamplesNum), null, new ContextAttribs().withDebug(useDebugGL));
         }
 
@@ -1026,7 +1026,7 @@ public class sceDisplay extends HLEModule {
         frameCount = 0;
         paintFrameCount = 0;
         prevFrameCount = 0;
-        prevFrameCount = 0;
+        prevPaintFrameCount = 0;
         reportCount = 0;
         insideRendering = false;
         framePerSecFactor = 1;
@@ -1281,7 +1281,8 @@ public class sceDisplay extends HLEModule {
     }
 
     public boolean isOnlyGEGraphics() {
-        return onlyGEGraphics;
+    	// "Only GE Graphics" makes only sense when the ExternalGE is not active
+        return onlyGEGraphics && !ExternalGE.isActive();
     }
 
     public void setOnlyGEGraphics(boolean onlyGEGraphics) {
@@ -2544,6 +2545,20 @@ public class sceDisplay extends HLEModule {
 	@HLEFunction(nid = 0x996881D2, version = 660)
 	public int sceDisplay_driver_996881D2() {
 		// Has no parameters
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0x9B18DDDD, version = 660)
+	public int sceDisplay_driver_9B18DDDD(int unknown) {
+		// This seems to be related to the registry entry "/CONFIG/DISPLAY/color_space_mode"
+		return 0;
+	}
+
+	@HLEUnimplemented
+	@HLEFunction(nid = 0xF455917F, version = 660)
+	public int sceDisplay_driver_F455917F(int unknown) {
+		// This seems to be related to the registry entry "/CONFIG/SYSTEM/POWER_SAVING/active_backlight_mode"
 		return 0;
 	}
 

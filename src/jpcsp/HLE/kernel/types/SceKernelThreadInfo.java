@@ -142,8 +142,9 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
     public Queue<Callback> pendingCallbacks = new LinkedList<Callback>();
     public Queue<IAction> pendingActions = new LinkedList<IAction>();
     // Used by sceKernelExtendThreadStack
-    private SysMemInfo extendedStackSysMemInfo;
+    private List<SysMemInfo> extendedStackSysMemInfos;
     public boolean preserveStack;
+    private IAction onThreadStartAction;
 
     public static class RegisteredCallbacks {
     	private int type;
@@ -327,6 +328,10 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
         }
         cpuContext._k0 = 0;
         cpuContext._k1 = 0;
+        if (isUserMode()) {
+        	cpuContext._k1 |= 0x100000;
+        }
+cpuContext._k1 |= 0x100000;
         int intNanValue = 0x7F800001;
         float nanValue = Float.intBitsToFloat(intNanValue);
         for (int i = Common._f31; i >= Common._f0; i--) {
@@ -457,21 +462,40 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
         freeExtendedStack();
     }
 
+    public void freeExtendedStack(SysMemInfo extendedStackSysMemInfo) {
+    	if (extendedStackSysMemInfos != null) {
+    		if (extendedStackSysMemInfos.remove(extendedStackSysMemInfo)) {
+    			Modules.SysMemUserForUserModule.free(extendedStackSysMemInfo);
+    		}
+
+    		if (extendedStackSysMemInfos.size() == 0) {
+    			extendedStackSysMemInfos = null;
+    		}
+    	}
+    }
+
     public void freeExtendedStack() {
-        if (extendedStackSysMemInfo != null) {
-        	Modules.SysMemUserForUserModule.free(extendedStackSysMemInfo);
-        	extendedStackSysMemInfo = null;
+        if (extendedStackSysMemInfos != null) {
+        	for (SysMemInfo extendedStackSysMemInfo : extendedStackSysMemInfos) {
+            	Modules.SysMemUserForUserModule.free(extendedStackSysMemInfo);
+        	}
+        	extendedStackSysMemInfos = null;
         }
     }
 
-    public int extendStack(int size) {
-    	extendedStackSysMemInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.USER_PARTITION_ID, String.format("ThreadMan-ExtendedStack-0x%x-%s", uid, name), SysMemUserForUser.PSP_SMEM_High, size, 0);
+    public SysMemInfo extendStack(int size) {
+    	SysMemInfo extendedStackSysMemInfo = Modules.SysMemUserForUserModule.malloc(SysMemUserForUser.USER_PARTITION_ID, String.format("ThreadMan-ExtendedStack-0x%x-%s", uid, name), SysMemUserForUser.PSP_SMEM_High, size, 0);
+    	if (extendedStackSysMemInfos == null) {
+    		extendedStackSysMemInfos = new LinkedList<SysMemInfo>();
+    	}
+    	extendedStackSysMemInfos.add(extendedStackSysMemInfo);
 
-    	return extendedStackSysMemInfo.addr;
+    	return extendedStackSysMemInfo;
     }
 
     public int getStackAddr() {
-    	if (extendedStackSysMemInfo != null) {
+    	if (extendedStackSysMemInfos != null) {
+    		SysMemInfo extendedStackSysMemInfo = extendedStackSysMemInfos.get(extendedStackSysMemInfos.size() - 1);
         	return extendedStackSysMemInfo.addr;
     	}
 
@@ -697,6 +721,16 @@ public class SceKernelThreadInfo extends pspAbstractMemoryMappedStructureVariabl
     	}
 
     	return address >= stackAddr && address < (stackAddr + stackSize);
+    }
+
+    public void setOnThreadStartAction(IAction onThreadStartAction) {
+    	this.onThreadStartAction = onThreadStartAction;
+    }
+
+    public void onThreadStart() {
+    	if (onThreadStartAction != null) {
+    		onThreadStartAction.execute();
+    	}
     }
 
     @Override

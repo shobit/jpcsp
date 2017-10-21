@@ -17,24 +17,31 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
 package jpcsp.HLE.kernel.types;
 
 public class pspIoDrv extends pspAbstractMemoryMappedStructure {
-	int nameAddr;
-	String name;
-	int devType;
-	int unknown;
-	int name2Addr;
-	String name2;
-	int funcsAddr;
+	public int nameAddr;
+	public String name;
+	public int devType;
+	public int unknown;
+	public int descriptionAddr;
+	public String description;
+	public int funcsAddr;
+	public pspIoDrvFuncs ioDrvFuncs;
 
 	@Override
 	protected void read() {
 		nameAddr = read32();
 		devType = read32();
 		unknown = read32();
-		name2Addr = read32();
+		descriptionAddr = read32();
 		funcsAddr = read32();
 
 		name = readStringZ(nameAddr);
-		name2 = readStringZ(name2Addr);
+		description = readStringZ(descriptionAddr);
+		if (funcsAddr == 0) {
+			ioDrvFuncs = null;
+		} else {
+			ioDrvFuncs = new pspIoDrvFuncs();
+			ioDrvFuncs.read(mem, funcsAddr);
+		}
 	}
 
 	@Override
@@ -42,8 +49,12 @@ public class pspIoDrv extends pspAbstractMemoryMappedStructure {
 		write32(nameAddr);
 		write32(devType);
 		write32(unknown);
-		write32(name2Addr);
+		write32(descriptionAddr);
 		write32(funcsAddr);
+
+		if (ioDrvFuncs != null && funcsAddr != 0) {
+			ioDrvFuncs.write(mem, funcsAddr);
+		}
 	}
 
 	@Override
@@ -53,6 +64,6 @@ public class pspIoDrv extends pspAbstractMemoryMappedStructure {
 
 	@Override
 	public String toString() {
-		return String.format("name=0x%08X('%s'), devType=0x%X, unknown=0x%X, name2=0x%08X('%s'), funcsAddr=0x%08X", nameAddr, name, devType, unknown, name2Addr, name2, funcsAddr);
+		return String.format("name=0x%08X('%s'), devType=0x%X, unknown=0x%X, description=0x%08X('%s'), funcsAddr=0x%08X(%s)", nameAddr, name, devType, unknown, descriptionAddr, description, funcsAddr, ioDrvFuncs);
 	}
 }

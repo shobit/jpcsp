@@ -73,6 +73,7 @@ public abstract class BaseObject extends BaseNativeObject {
 		return fields;
 	}
 
+	@SuppressWarnings("deprecation")
 	public void read(RCOContext context) {
 		Field[] fields = getSortedFields();
 		for (Field field : fields) {
@@ -93,6 +94,7 @@ public abstract class BaseObject extends BaseNativeObject {
 		}
 	}
 
+	@SuppressWarnings("deprecation")
 	public int size() {
 		int size = 0;
 		Field[] fields = getSortedFields();
