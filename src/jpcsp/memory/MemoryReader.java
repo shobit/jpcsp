@@ -23,14 +23,17 @@ import java.nio.IntBuffer;
 import jpcsp.Memory;
 import jpcsp.MemoryMap;
 import jpcsp.Allegrex.compiler.RuntimeContext;
+import jpcsp.Allegrex.compiler.RuntimeContextLLE;
 
 /**
  * @author gid15
  *
  */
 public class MemoryReader {
-	private static int getMaxLength(int address) {
+	private static int getMaxLength(int rawAddress) {
 		int length;
+
+		int address = rawAddress & Memory.addressMask;
 
 		if (address >= MemoryMap.START_RAM && address <= MemoryMap.END_RAM) {
 			length = MemoryMap.END_RAM - address + 1;
@@ -38,6 +41,8 @@ public class MemoryReader {
 			length = MemoryMap.END_VRAM - address + 1;
 		} else if (address >= MemoryMap.START_SCRATCHPAD && address <= MemoryMap.END_SCRATCHPAD) {
 			length = MemoryMap.END_SCRATCHPAD - address + 1;
+		} else if (rawAddress >= MemoryMap.START_IO_0 && rawAddress <= MemoryMap.END_IO_1) {
+			length = MemoryMap.END_IO_1 - rawAddress + 1;
 		} else {
 			length = 0;
 		}
@@ -72,33 +77,59 @@ public class MemoryReader {
 	 * @return        the MemoryReader
 	 */
 	public static IMemoryReader getMemoryReader(int address, int length, int step) {
-		address &= Memory.addressMask;
-		if (RuntimeContext.hasMemoryInt()) {
-			return getFastMemoryReader(address, step);
-		}
+		if (Memory.isAddressGood(address)) {
+			address &= Memory.addressMask;
+			if (RuntimeContext.hasMemoryInt()) {
+				return getFastMemoryReader(address, step);
+			}
 
-		if (!DebuggerMemory.isInstalled()) {
-			Buffer buffer = Memory.getInstance().getBuffer(address, length);
+			if (!DebuggerMemory.isInstalled()) {
+				Buffer buffer = Memory.getInstance().getBuffer(address, length);
 
-			if (buffer instanceof IntBuffer) {
-				IntBuffer intBuffer = (IntBuffer) buffer;
-				switch (step) {
-				case 1: return new MemoryReaderInt8(intBuffer, address);
-				case 2: return new MemoryReaderInt16(intBuffer, address);
-				case 4: return new MemoryReaderInt32(intBuffer, address);
-				}
-			} else if (buffer instanceof ByteBuffer) {
-				ByteBuffer byteBuffer = (ByteBuffer) buffer;
-				switch (step) {
-				case 1: return new MemoryReaderByte8(byteBuffer, address);
-				case 2: return new MemoryReaderByte16(byteBuffer, address);
-				case 4: return new MemoryReaderByte32(byteBuffer, address);
+				if (buffer instanceof IntBuffer) {
+					IntBuffer intBuffer = (IntBuffer) buffer;
+					switch (step) {
+					case 1: return new MemoryReaderInt8(intBuffer, address);
+					case 2: return new MemoryReaderInt16(intBuffer, address);
+					case 4: return new MemoryReaderInt32(intBuffer, address);
+					}
+				} else if (buffer instanceof ByteBuffer) {
+					ByteBuffer byteBuffer = (ByteBuffer) buffer;
+					switch (step) {
+					case 1: return new MemoryReaderByte8(byteBuffer, address);
+					case 2: return new MemoryReaderByte16(byteBuffer, address);
+					case 4: return new MemoryReaderByte32(byteBuffer, address);
+					}
 				}
 			}
 		}
 
 		// Default (generic) MemoryReader
 		return new MemoryReaderGeneric(address, length, step);
+	}
+
+	/**
+	 * Creates a MemoryReader to read values from memory.
+	 *
+	 * @param mem     the memory to be used.
+	 * @param address the address where to start reading.
+	 *                When step == 2, the address has to be 16-bit aligned ((address & 1) == 0).
+	 *                When step == 4, the address has to be 32-bit aligned ((address & 3) == 0).
+	 * @param length  the maximum number of bytes that can be read.
+	 * @param step    when step == 1, read 8-bit values
+	 *                when step == 2, read 16-bit values
+	 *                when step == 4, read 32-bit values
+	 *                other value for step are not allowed.
+	 * @return        the MemoryReader
+	 */
+	public static IMemoryReader getMemoryReader(Memory mem, int address, int length, int step) {
+		// Use the optimized version if we are just using the standard memory
+		if (mem == RuntimeContext.memory) {
+			return getMemoryReader(address, length, step);
+		}
+
+		// Default (generic) MemoryReader
+		return new MemoryReaderGeneric(mem, address, length, step);
 	}
 
 	/**
@@ -114,8 +145,8 @@ public class MemoryReader {
 	 * @return        the MemoryReader
 	 */
 	public static IMemoryReader getMemoryReader(int address, int step) {
-		address &= Memory.addressMask;
-		if (RuntimeContext.hasMemoryInt()) {
+		if (RuntimeContext.hasMemoryInt(address)) {
+			address &= Memory.addressMask;
 			return getFastMemoryReader(address, step);
 		}
 		return getMemoryReader(address, getMaxLength(address), step);
@@ -139,16 +170,27 @@ public class MemoryReader {
 	// Added "final" here only for performance reasons. Can be removed if inheritance
 	// of these classes is required.
 	private final static class MemoryReaderGeneric implements IMemoryReader {
-		private Memory mem;
+		private final Memory mem;
 		private int address;
 		private int length;
-		private int step;
+		private final int step;
+
+		public MemoryReaderGeneric(Memory mem, int address, int length, int step) {
+			this.mem = mem;
+			this.address = address;
+			this.length = length;
+			this.step = step;
+		}
 
 		public MemoryReaderGeneric(int address, int length, int step) {
 			this.address = address;
 			this.length = length;
 			this.step = step;
-			mem = Memory.getInstance();
+			if (Memory.isAddressGood(address) || RuntimeContextLLE.getMMIO() == null) {
+				mem = Memory.getInstance();
+			} else {
+				mem = RuntimeContextLLE.getMMIO();
+			}
 		}
 
 		@Override

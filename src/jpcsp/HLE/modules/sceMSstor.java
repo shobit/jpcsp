@@ -16,6 +16,7 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.HLE.modules;
 
+import static jpcsp.Allegrex.compiler.RuntimeContext.setLog4jMDC;
 import static jpcsp.HLE.HLEModuleManager.HLESyscallNid;
 import static jpcsp.HLE.modules.IoFileMgrForUser.PSP_SEEK_SET;
 import static jpcsp.HLE.modules.ThreadManForUser.installHLESyscall;
@@ -51,6 +52,7 @@ import jpcsp.HLE.kernel.types.pspIoDrvArg;
 import jpcsp.HLE.kernel.types.pspIoDrvFileArg;
 import jpcsp.HLE.kernel.types.pspIoDrvFuncs;
 import jpcsp.HLE.modules.SysMemUserForUser.SysMemInfo;
+import jpcsp.settings.Settings;
 import jpcsp.util.Utilities;
 
 public class sceMSstor extends HLEModule {
@@ -107,6 +109,7 @@ public class sceMSstor extends HLEModule {
 
 		@Override
 		public void run() {
+			setLog4jMDC();
 			vFile.scan();
 			completed = true;
 		}
@@ -318,6 +321,15 @@ public class sceMSstor extends HLEModule {
     	return len;
     }
 
+    public int hleMSstorPartitionIoRead(byte[] buffer, int bufferOffset, int len) {
+    	if (vFile != null) {
+    		scanThread.waitForCompletion();
+    		len = vFile.ioRead(buffer, bufferOffset, len);
+    	}
+
+    	return len;
+    }
+
     @HLEUnimplemented
     @HLEFunction(nid = HLESyscallNid, version = 150)
     public int hleMSstorPartitionIoWrite(pspIoDrvFileArg drvFileArg, @BufferInfo(lengthInfo=LengthInfo.nextParameter, usage=Usage.in) TPointer data, int len) {
@@ -399,13 +411,9 @@ public class sceMSstor extends HLEModule {
 		installHLESyscall(partitionFuncs.ioWrite, this, "hleMSstorPartitionIoWrite");
     }
 
-    public void installDrivers() {
-		Memory mem = Memory.getInstance();
-
-		dumpIoIoctl_0x02125803 = readBytes("ms.ioctl.0x02125803");
-
-		IVirtualFileSystem vfs = new LocalVirtualFileSystem("ms0/", true);
-		vFile = new Fat32VirtualFile(vfs);
+    public void hleInit() {
+		IVirtualFileSystem vfs = new LocalVirtualFileSystem(Settings.getInstance().getDirectoryMapping("ms0"), true);
+		vFile = new Fat32VirtualFile("ms0:", vfs);
 		if (log.isDebugEnabled()) {
 			log.debug(String.format("installDrivers vFile=%s", vFile));
 		}
@@ -414,6 +422,14 @@ public class sceMSstor extends HLEModule {
 		scanThread.setName("Fat32VirtualFile Scan Thread");
 		scanThread.setDaemon(true);
 		scanThread.start();
+    }
+
+    public void installDrivers() {
+		Memory mem = Memory.getInstance();
+
+		dumpIoIoctl_0x02125803 = readBytes("ms.ioctl.0x02125803");
+
+		hleInit();
 
 		pspIoDrv controllerDrv = new pspIoDrv();
 		pspIoDrvFuncs controllerFuncs = new pspIoDrvFuncs();
@@ -493,4 +509,24 @@ public class sceMSstor extends HLEModule {
 			Modules.ThreadManForUserModule.executeCallback(thread, sceIoAddDrv, new AfterAddDrvController(thread, sceIoAddDrv, storageDrvAddr, partitionDrvAddr), false, controllerDrvAddr);
 		}
 	}
+
+    /**
+     * This is the function executed at module start (alias to "module_start")
+     *
+     * @param unknown1
+     * @param unknown2
+     * @param unknown3
+     * @return
+     */
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x6FC1E8AE, version = 150)
+    public int sceMSstorEntry(int unknown1, int unknown2, int unknown3) {
+    	return 0;
+    }
+
+    @HLEUnimplemented
+    @HLEFunction(nid = 0x714782D6, version = 150)
+    public int sceMSstorRegisterCLDMSelf(int unknown) {
+    	return 0;
+    }
 }

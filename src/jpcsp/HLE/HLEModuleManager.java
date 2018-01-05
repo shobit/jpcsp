@@ -244,7 +244,9 @@ public class HLEModuleManager {
         scePwm(Modules.scePwmModule),
         sceLcdc(Modules.sceLcdcModule),
         sceDmacplus(Modules.sceDmacplusModule),
-        sceDdr(Modules.sceDdrModule);
+        sceDdr(Modules.sceDdrModule),
+        sceMScm(Modules.sceMScmModule),
+        sceG729(Modules.sceG729Module, new String[] { "PSP_MODULE_AV_G729", "g729" }, "flash0:/kd/g729.prx");
 
     	private HLEModule module;
     	private boolean loadedByDefault;
@@ -480,13 +482,15 @@ public class HLEModuleManager {
     		// Verify if this not the address of a stub call:
     		//   J   realAddress
     		//   NOP
-        	Memory mem = Memory.getInstance();
-        	if ((mem.read32(address) >>> 26) == AllegrexOpcodes.J) {
-        		if (mem.read32(address + 4) == ThreadManForUser.NOP()) {
-        			int jumpAddress = (mem.read32(address) & 0x03FFFFFF) << 2;
+        	if (Memory.isAddressGood(address)) {
+            	Memory mem = Memory.getInstance();
+	        	if ((mem.read32(address) >>> 26) == AllegrexOpcodes.J) {
+	        		if (mem.read32(address + 4) == ThreadManForUser.NOP()) {
+	        			int jumpAddress = (mem.read32(address) & 0x03FFFFFF) << 2;
 
-        			nid = nidMapper.getNidByAddress(jumpAddress);
-        		}
+	        			nid = nidMapper.getNidByAddress(jumpAddress);
+	        		}
+	        	}
         	}
     	}
 
@@ -501,6 +505,16 @@ public class HLEModuleManager {
 
     public HLEModuleFunction getFunctionFromNID(int nid) {
     	return nidToFunction.get(nid);
+    }
+
+    public int getNIDFromFunctionName(String functionName) {
+    	for (HLEModuleFunction function : nidToFunction.values()) {
+    		if (functionName.equals(function.getFunctionName())) {
+    			return function.getNid();
+    		}
+    	}
+
+    	return 0;
     }
 
     public void removeFunction(HLEModuleFunction func) {

@@ -20,6 +20,9 @@ import java.nio.ByteBuffer;
 
 import org.apache.log4j.Logger;
 
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLELogging;
@@ -29,6 +32,7 @@ import jpcsp.HLE.Modules;
 import jpcsp.HLE.PspString;
 import jpcsp.HLE.TPointer;
 import jpcsp.HLE.kernel.types.SceKernelLoadExecVSHParam;
+import jpcsp.settings.Settings;
 import jpcsp.util.Utilities;
 import jpcsp.Emulator;
 import jpcsp.Allegrex.compiler.RuntimeContext;
@@ -49,7 +53,7 @@ public class LoadExecForKernel extends HLEModule {
 	}
 
     @HLEFunction(nid = 0x6D302D3D, version = 150)
-    public int sceKernelExitVSHKernel(@CanBeNull TPointer param) {
+    public int sceKernelExitVSHKernel(@BufferInfo(lengthInfo=LengthInfo.variableLength, usage=Usage.in) @CanBeNull TPointer param) {
     	SceKernelLoadExecVSHParam loadExecVSHParam = new SceKernelLoadExecVSHParam();
     	loadExecVSHParam.read(param);
 
@@ -62,6 +66,11 @@ public class LoadExecForKernel extends HLEModule {
 		Modules.ThreadManForUserModule.stop();
 		return 0;
 	}
+
+    @HLEFunction(nid = 0xC3474C2A, version = 660)
+    public int sceKernelExitVSHKernel_660(@BufferInfo(lengthInfo=LengthInfo.variableLength, usage=Usage.in) @CanBeNull TPointer param) {
+    	return sceKernelExitVSHKernel(param);
+    }
 
     @HLELogging(level="info")
     @HLEFunction(nid = 0x28D0D249, version = 150)
@@ -86,7 +95,7 @@ public class LoadExecForKernel extends HLEModule {
     		} else if (arg.startsWith("ms0:")) {
     	    	int dirIndex = arg.lastIndexOf('/');
     	    	if (dirIndex >= 0) {
-    	    		Modules.IoFileMgrForUserModule.setfilepath("ms0/" + arg.substring(4, dirIndex));
+    	    		Modules.IoFileMgrForUserModule.setfilepath(Settings.getInstance().getDirectoryMapping("ms0") + arg.substring(4, dirIndex));
     	    	}
     		}
     	}

@@ -44,3 +44,4 @@ step-trace.txt
 *.dll
 *.bat
 *.exe
+/.metadata/

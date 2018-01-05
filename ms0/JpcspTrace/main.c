@@ -24,6 +24,10 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
 #include <string.h>
 #include "systemctrl.h"
 #include "common.h"
+#if DUMP_NAND
+#  include <pspnand_driver.h>
+   int sceNandReadExtraOnly(u32 ppn, void *spare, u32 len);
+#endif
 
 PSP_MODULE_INFO("JpcspTrace", PSP_MODULE_KERNEL, 1, 0);
 
@@ -31,6 +35,9 @@ PSP_MODULE_INFO("JpcspTrace", PSP_MODULE_KERNEL, 1, 0);
 #define MAKE_JUMP(f) (0x08000000 | (((u32)(f) >> 2) & 0x03ffffff))
 #define MAKE_SYSCALL(n) ((((n) & 0xFFFFF) << 6) | 0x0C)
 #define NOP 0
+
+#define LW(addr) (*((volatile u32*) (addr)))
+#define SW(value, addr) (*((volatile u32*) (addr)) = (value))
 
 #define SYSCALL_PLUGIN_NID	0xADB83469
 
@@ -50,6 +57,7 @@ int callSyscallPluginOffset;
 int (* originalIoOpen)(const char *s, int flags, int permissions);
 int (* originalIoWrite)(SceUID id, const void *data, int size);
 int (* originalIoClose)(SceUID id);
+int sceWmd_driver_7A0E484C(void *, u32, u32 *);
 
 
 SyscallInfo *moduleSyscalls = NULL;
@@ -411,6 +419,77 @@ void patchSyscall(char *module, char *library, const char *name, u32 nid, int nu
 	#endif
 }
 
+void dumpMemory(u32 startAddress, u32 length, const char *fileName) {
+	SceUID fd = ioOpen(fileName, PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (fd < 0) {
+		printLog("dumpMemory - Cannot create file\n");
+		return;
+	}
+
+	u32 buffer[256];
+	u32 address = startAddress & 0xFFFFFFFC;
+	while (length > 0) {
+		u32 n = length;
+		if (n > sizeof(buffer)) {
+			n = sizeof(buffer);
+		}
+
+		u32 i;
+		u32 n4 = n >> 2;
+		for (i = 0; i < n4; i++, address += 4) {
+			buffer[i] = _lw(address);
+		}
+
+		ioWrite(fd, buffer, n);
+
+		length -= n;
+	}
+
+	ioClose(fd);
+}
+
+void decryptMeimg(char *fromFileName, char *toFileName) {
+	SceUID me = ioOpen(fromFileName, PSP_O_RDONLY, 0777);
+	if (me < 0) {
+		printLog("Cannot open meimg.img file\n");
+		return;
+	}
+
+	u32 bufferSize = 349200;
+	u32 allocSize = bufferSize + 0x40;
+	void *allocBuffer = alloc(allocSize);
+	void *buffer = (void *) ((((u32) allocBuffer) + 0x3F) & ~0x3F);
+
+	int result = sceIoRead(me, buffer, bufferSize);
+	if (result < 0) {
+		printLog("Error reading meimg.img file\n");
+		freeAlloc(allocBuffer, allocSize);
+		return;
+	}
+
+	ioClose(me);
+
+	u32 newSize = 0;
+	result = sceWmd_driver_7A0E484C(buffer, bufferSize, &newSize);
+	if (result < 0) {
+		printLogH("Error ", result, " decrypting meimg.img\n");
+		freeAlloc(allocBuffer, allocSize);
+		return;
+	}
+
+	me = ioOpen(toFileName, PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (me < 0) {
+		printLog("Cannot create decrypted meimg.img file\n");
+		freeAlloc(allocBuffer, allocSize);
+		return;
+	}
+	printLogH("meimg.img decrypted newSize=", newSize, "\n");
+	ioWrite(me, buffer, newSize);
+	ioClose(me);
+
+	freeAlloc(allocBuffer, allocSize);
+}
+
 int readChar(SceUID fd) {
 	char c;
 	int length = sceIoRead(fd, &c, 1);
@@ -496,16 +575,27 @@ void patchSyscalls(char *filePath) {
 		char *hexNumParams = nextWord(&line);
 		char *strParamTypes = nextWord(&line);
 
-		u32 nid = parseHex(hexNid);
-		u32 numParams = parseHex(hexNumParams);
-		u32 flags = 0;
-		u32 paramTypes = parseParamTypes(strParamTypes, &flags);
-
-		if (strcmp(name, "LogBufferLength") == 0) {
-			commonInfo->maxLogBufferLength = nid;
-		} else if (strcmp(name, "BufferLogWrites") == 0) {
+		if (strcmp(name, "BufferLogWrites") == 0) {
 			commonInfo->bufferLogWrites = 1;
+		} else if (strcmp(name, "LogBufferLength") == 0) {
+			commonInfo->maxLogBufferLength = parseHex(hexNid);
+		} else if (strcmp(name, "DumpMemory") == 0) {
+			u32 startAddress = parseHex(hexNid);
+			u32 length = parseHex(hexNumParams);
+			char *fileName = strParamTypes;
+
+			dumpMemory(startAddress, length, fileName);
+		} else if (strcmp(name, "DecryptMeimg") == 0) {
+			char *fromFileName = hexNid;
+			char *toFileName = hexNumParams;
+
+			decryptMeimg(fromFileName, toFileName);
 		} else {
+			u32 nid = parseHex(hexNid);
+			u32 numParams = parseHex(hexNumParams);
+			u32 flags = 0;
+			u32 paramTypes = parseParamTypes(strParamTypes, &flags);
+
 			// If no numParams specified, take maximum number of params
 			if (strlen(hexNumParams) == 0) {
 				numParams = 8;
@@ -775,6 +865,140 @@ int loadUserModule(SceSize args, void * argp) {
 	return 0;
 }
 
+#if DUMP_NAND
+void dumpNand() {
+	SceUID fdFuseId = ioOpen("ms0:/nand.fuseid", PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (fdFuseId < 0) {
+		printLog("dumpNand - Cannot create nand.fuseid file\n");
+		return;
+	}
+
+	// sceSysregGetFuseId
+	u32 fuseId0 = *((u32 *) (0xBC100090));
+	u32 fuseId1 = *((u32 *) (0xBC100094));
+	ioWrite(fdFuseId, &fuseId0, 4);
+	ioWrite(fdFuseId, &fuseId1, 4);
+	ioClose(fdFuseId);
+
+	SceUID fdBlock = ioOpen("ms0:/nand.block", PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (fdBlock < 0) {
+		printLog("dumpNand - Cannot create nand.block file\n");
+		return;
+	}
+
+	SceUID fdSpare = ioOpen("ms0:/nand.spare", PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (fdSpare < 0) {
+		printLog("dumpNand - Cannot create nand.spare file\n");
+		return;
+	}
+
+	SceUID fdResult = ioOpen("ms0:/nand.result", PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (fdResult < 0) {
+		printLog("dumpNand - Cannot create nand.result file\n");
+		return;
+	}
+
+	int pageSize = sceNandGetPageSize();
+	int pagesPerBlock = sceNandGetPagesPerBlock();
+	int totalBlocks = sceNandGetTotalBlocks();
+	printLogH("sceNandGetPageSize ", pageSize, "\n");
+	printLogH("sceNandGetPagesPerBlock ", pagesPerBlock, "\n");
+	printLogH("sceNandGetTotalBlocks ", totalBlocks, "\n");
+
+	int blockBufferSize = pageSize * pagesPerBlock;
+	void *blockBuffer = alloc(blockBufferSize);
+	int spareBufferSize = 16 * pagesPerBlock;
+	void *spareBuffer = alloc(spareBufferSize);
+
+	int block;
+	for (block = 0; block < totalBlocks; block++) {
+		u32 ppn = block * pagesPerBlock;
+
+		memset(blockBuffer, 0, blockBufferSize);
+		memset(spareBuffer, 0, spareBufferSize);
+
+		sceNandLock(0);
+		int result = sceNandReadPages(ppn, blockBuffer, NULL, pagesPerBlock);
+		sceNandReadExtraOnly(ppn, spareBuffer, pagesPerBlock);
+		sceNandUnlock();
+
+		ioWrite(fdBlock, blockBuffer, blockBufferSize);
+		ioWrite(fdSpare, spareBuffer, spareBufferSize);
+		ioWrite(fdResult, &result, 4);
+	}
+
+	ioClose(fdResult);
+	ioClose(fdSpare);
+	ioClose(fdBlock);
+}
+#endif
+
+#if DUMP_MEMORYSTICK
+void dumpMemoryStick() {
+	SceUID fdBlock = ioOpen("ms0:/ms.block", PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (fdBlock < 0) {
+		printLog("dumpMemoryStick - Cannot create ms.block file\n");
+		return;
+	}
+
+	SceUID ms = ioOpen("msstor0p1:", PSP_O_RDONLY, 0777);
+	if (ms < 0) {
+		printLog("dumpMemoryStick - Cannot open the MemoryStick\n");
+		return;
+	}
+
+	int result = sceIoLseek(ms, 0, 0);
+	if (result < 0) {
+		printLog("dumpMemoryStick - Cannot seek on the MemoryStick\n");
+		return;
+	}
+
+	int bufferSize = 0x10000;
+	void *buffer = alloc(bufferSize);
+
+	result = sceIoIoctl(ms, 0x2125001, NULL, 0, buffer, 4);
+	printLogHH("sceIoIoctl 0x2125001 returned ", result, ", out=", ((u32 *) buffer)[0], "\n");
+
+	result = sceIoIoctl(ms, 0x2125803, NULL, 0, buffer, 0x60);
+	printLogH("sceIoIoctl 0x2125803 returned ", result, "\n");
+	printLogMem("   out=", (int) buffer, 0x60);
+	SceUID fd = ioOpen("ms0:/ms.ioctl.0x02125803", PSP_O_WRONLY | PSP_O_CREAT, 0777);
+	if (fd >= 0) {
+		ioWrite(fd, buffer, 0x60);
+		ioClose(fd);
+	}
+
+	result = sceIoIoctl(ms, 0x2125008, NULL, 0, buffer, 4);
+	printLogHH("sceIoIoctl 0x2125008 returned ", result, ", out=", ((u32 *) buffer)[0], "\n");
+
+	result = sceIoIoctl(ms, 0x2125009, NULL, 0, buffer, 4);
+	printLogHH("sceIoIoctl 0x2125009 returned ", result, ", out=", ((u32 *) buffer)[0], "\n");
+
+	int i;
+	for (i = 0; i < 0x1000; i++) {
+		result = sceIoRead(ms, buffer, bufferSize);
+		if (result < 0) {
+			printLog("dumpMemoryStick - Cannot read the MemoryStick\n");
+			return;
+		}
+
+		ioWrite(fdBlock, buffer, bufferSize);
+	}
+
+	ioClose(ms);
+	ioClose(fdBlock);
+}
+#endif
+
+u32 nandDmaIntrOld = -1;
+void checkNandDma() {
+	u32 nandDmaIntr = LW(0xBD101038);
+	if (nandDmaIntr != nandDmaIntrOld) {
+		printLogH("nandDmaIntr=", nandDmaIntr, "\n");
+	}
+	nandDmaIntrOld = nandDmaIntr;
+}
+
 // Module Start
 int module_start(SceSize args, void * argp) {
 	// Find Allocator Functions in Memory
@@ -804,6 +1028,35 @@ int module_start(SceSize args, void * argp) {
 	openLogFile();
 
 	printLog("JpcspTrace - module_start\n");
+
+#if 0
+int intr = sceKernelCpuSuspendIntr();
+	checkNandDma();
+	SW(0x000, 0xBD101038);
+	checkNandDma();
+	SW(0x303, 0xBD101038);
+	checkNandDma();
+	SW(0x800 << 10, 0xBD101020);
+	SW(LW(0xBD101038) & 0xFEFC, 0xBD101038);
+	checkNandDma();
+	SW(0x301, 0xBD101024);
+	checkNandDma();
+	while (1) {
+		checkNandDma();
+		if ((((nandDmaIntrOld >> 8) & nandDmaIntrOld) & 0x3) != 0) {
+			printLog("Nand Dma completed\n");
+			break;
+		}
+	}
+sceKernelCpuResumeIntr(intr);
+#endif
+
+	#if DUMP_NAND
+	dumpNand();
+	#endif
+	#if DUMP_MEMORYSTICK
+	dumpMemoryStick();
+	#endif
 
 	int initKeyConfig = sceKernelInitKeyConfig();
 	if (initKeyConfig == PSP_INIT_KEYCONFIG_VSH) {

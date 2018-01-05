@@ -53,6 +53,7 @@ public abstract class FatVirtualFile implements IVirtualFile {
     public final static int sectorSize = 512;
     protected final byte[] currentSector = new byte[sectorSize];
     private static final byte[] emptySector = new byte[sectorSize];
+    private String deviceName;
 	private IVirtualFileSystem vfs;
 	private long position;
 	protected int totalSectors;
@@ -66,7 +67,8 @@ public abstract class FatVirtualFile implements IVirtualFile {
     private int fatSectorNumber = bootSectorNumber + reservedSectors;
     private int fsInfoSectorNumber = bootSectorNumber + 1;
 
-	protected FatVirtualFile(IVirtualFileSystem vfs, int totalSectors) {
+	protected FatVirtualFile(String deviceName, IVirtualFileSystem vfs, int totalSectors) {
+		this.deviceName = deviceName;
 		this.vfs = vfs;
 
 		this.totalSectors = totalSectors;
@@ -76,16 +78,19 @@ public abstract class FatVirtualFile implements IVirtualFile {
 			log.debug(String.format("totalSectors=0x%X, fatSectors=0x%X", totalSectors, fatSectors));
 		}
 
+		int usedSectors = reservedSectors + fatSectors * numberOfFats;
+		usedSectors += (0x200 << 5) / sectorSize;
+		int maxNumberClusters = (totalSectors - usedSectors) / getSectorsPerCluster();
 		// Allocate the FAT cluster map
-		fatClusterMap = new int[fatSectors * (sectorSize / 4)];
+		fatClusterMap = new int[maxNumberClusters];
 		// First 2 special entries in the cluster map
 		fatClusterMap[0] = 0xFFFFFFF8 & getClusterMask(); // 0xF8 is matching the boot sector Media type field
 		fatClusterMap[1] = 0xFFFFFFFF & getClusterMask();
 
 		// Allocate the FAT file info map
-		fatFileInfoMap = new FatFileInfo[fatClusterMap.length];
+		fatFileInfoMap = new FatFileInfo[maxNumberClusters];
 
-		builder = new FatBuilder(this, vfs);
+		builder = new FatBuilder(this, vfs, maxNumberClusters);
 	}
 
 	protected abstract int getClusterMask();
@@ -230,6 +235,10 @@ public abstract class FatVirtualFile implements IVirtualFile {
 
 		int clusterNumber = getClusterNumber(sectorNumber);
 		int sectorOffsetInCluster = getSectorOffsetInCluster(sectorNumber);
+		if (clusterNumber >= fatFileInfoMap.length) {
+			// Reading out of the allocated fat files
+			return;
+		}
 		FatFileInfo fileInfo = fatFileInfoMap[clusterNumber];
 		if (fileInfo == null) {
 			log.warn(String.format("readDataSector unknown sectorNumber=0x%X, clusterNumber=0x%X", sectorNumber, clusterNumber));
@@ -523,7 +532,7 @@ public abstract class FatVirtualFile implements IVirtualFile {
 				pendingDeleteFile.setFileSize(fileSize);
 				pendingDeleteFile.setLastModified(lastModified);
 			} else {
-				FatFileInfo newFileInfo = new FatFileInfo(fileInfo.getFullFileName(), fileName, directory, readOnly, null, fileSize);
+				FatFileInfo newFileInfo = new FatFileInfo(deviceName, fileInfo.getFullFileName(), fileName, directory, readOnly, null, fileSize);
 				newFileInfo.setLastModified(lastModified);
 				newFileInfo.setFileName83(Utilities.readStringNZ(sector, offset + 0, 8 + 3));
 				if (clusterNumber != 0) {
@@ -725,6 +734,10 @@ public abstract class FatVirtualFile implements IVirtualFile {
 	private void writeEmptySector() {
 	}
 
+	public String getDeviceName() {
+		return deviceName;
+	}
+
 	private void writeSector(int sectorNumber) {
 		if (sectorNumber == bootSectorNumber) {
 			writeBootSector();
@@ -745,6 +758,7 @@ public abstract class FatVirtualFile implements IVirtualFile {
 	@Override
 	public int ioRead(TPointer outputPointer, int outputLength) {
 		int readLength = 0;
+		int outputOffset = 0;
 		while (outputLength > 0) {
 			int sectorNumber = getSectorNumber(position);
 			readSector(sectorNumber);
@@ -752,10 +766,10 @@ public abstract class FatVirtualFile implements IVirtualFile {
 			int sectorLength = sectorSize - sectorOffset;
 			int length = Math.min(sectorLength, outputLength);
 
-			outputPointer.setArray(0, currentSector, sectorOffset, length);
+			outputPointer.setArray(outputOffset, currentSector, sectorOffset, length);
 
 			outputLength -= length;
-			outputPointer.add(length);
+			outputOffset += length;
 			position += length;
 			readLength += length;
 		}
@@ -864,6 +878,6 @@ public abstract class FatVirtualFile implements IVirtualFile {
 
     @Override
 	public String toString() {
-    	return String.format("%s", vfs);
+    	return String.format("%s%s", deviceName == null ? "" : deviceName, vfs);
 	}
 }

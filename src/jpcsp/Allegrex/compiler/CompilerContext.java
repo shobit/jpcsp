@@ -37,6 +37,7 @@ import static jpcsp.Allegrex.Common._t9;
 import static jpcsp.Allegrex.Common._v0;
 import static jpcsp.Allegrex.Common._v1;
 import static jpcsp.Allegrex.Common._zr;
+import static jpcsp.Allegrex.Common.Instruction.FLAG_MODIFIES_INTERRUPT_STATE;
 import static jpcsp.HLE.HLEModuleManager.HLESyscallNid;
 import static jpcsp.HLE.HLEModuleManager.InternalSyscallNid;
 import static jpcsp.HLE.SyscallHandler.syscallLoadCoreUnmappedImport;
@@ -63,7 +64,6 @@ import jpcsp.Allegrex.GprState;
 import jpcsp.Allegrex.Instructions;
 import jpcsp.Allegrex.VfpuState;
 import jpcsp.Allegrex.Common.Instruction;
-import jpcsp.Allegrex.Cp0State;
 import jpcsp.Allegrex.FpuState.Fcr31;
 import jpcsp.Allegrex.VfpuState.Vcr;
 import jpcsp.Allegrex.VfpuState.Vcr.PfxDst;
@@ -99,7 +99,6 @@ import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
 import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.kernel.types.pspAbstractMemoryMappedStructure;
 import jpcsp.HLE.modules.ThreadManForUser;
-import jpcsp.hardware.Interrupts;
 import jpcsp.memory.DebuggerMemory;
 import jpcsp.memory.FastMemory;
 import jpcsp.memory.SafeFastMemory;
@@ -160,7 +159,8 @@ public class CompilerContext implements ICompilerContext {
     private final VfpuPfxDstState vfpuPfxdState = new VfpuPfxDstState();
     private Label interpretPfxLabel = null;
     private boolean pfxVdOverlap = false;
-    private static final String runtimeContextInternalName = Type.getInternalName(RuntimeContext.class);
+    public static final String runtimeContextInternalName = Type.getInternalName(RuntimeContext.class);
+    public static final String runtimeContextLLEInternalName = Type.getInternalName(RuntimeContextLLE.class);
     private static final String processorDescriptor = Type.getDescriptor(Processor.class);
     private static final String cpuDescriptor = Type.getDescriptor(CpuState.class);
     private static final String cpuInternalName = Type.getInternalName(CpuState.class);
@@ -175,7 +175,7 @@ public class CompilerContext implements ICompilerContext {
     private static final String profilerInternalName = Type.getInternalName(Profiler.class);
 	public  static final String executableDescriptor = Type.getDescriptor(IExecutable.class);
 	public  static final String executableInternalName = Type.getInternalName(IExecutable.class);
-	private static final String arraycopyDescriptor = "(" + Type.getDescriptor(Object.class) + "I" + Type.getDescriptor(Object.class) + "II)V";
+	public  static final String arraycopyDescriptor = "(" + Type.getDescriptor(Object.class) + "I" + Type.getDescriptor(Object.class) + "II)V";
 	private static Set<Integer> fastSyscalls;
 	private int instanceIndex;
 	private NativeCodeSequence preparedCallNativeCodeBlock = null;
@@ -253,12 +253,8 @@ public class CompilerContext implements ICompilerContext {
     	}
 	}
 
-    private void loadCp0() {
-    	loadProcessor();
-        mv.visitFieldInsn(Opcodes.GETFIELD, Type.getInternalName(Processor.class), "cp0", Type.getDescriptor(Cp0State.class));
-    }
-
-    private void loadProcessor() {
+    @Override
+    public void loadProcessor() {
         mv.visitFieldInsn(Opcodes.GETSTATIC, runtimeContextInternalName, "processor", processorDescriptor);
     }
 
@@ -267,7 +263,7 @@ public class CompilerContext implements ICompilerContext {
     }
 
     private void loadMMIO() {
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, Type.getInternalName(RuntimeContextLLE.class), "getMMIO", "()" + memoryDescriptor);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextLLEInternalName, "getMMIO", "()" + memoryDescriptor);
     }
 
     private void loadModule(String moduleName) {
@@ -278,11 +274,13 @@ public class CompilerContext implements ICompilerContext {
 		mv.visitFieldInsn(Opcodes.GETSTATIC, runtimeContextInternalName, "fpr", "[F");
     }
 
-    private void loadVprFloat() {
+    @Override
+    public void loadVprFloat() {
 		mv.visitFieldInsn(Opcodes.GETSTATIC, runtimeContextInternalName, "vprFloat", "[F");
     }
 
-    private void loadVprInt() {
+    @Override
+    public void loadVprInt() {
 		mv.visitFieldInsn(Opcodes.GETSTATIC, runtimeContextInternalName, "vprInt", "[I");
     }
 
@@ -537,6 +535,21 @@ public class CompilerContext implements ICompilerContext {
 	        mv.visitInsn(Opcodes.SWAP);
 	        mv.visitInsn(Opcodes.FASTORE);
     	}
+    }
+
+    @Override
+    public boolean hasNoPfx() {
+    	if (vfpuPfxdState != null && vfpuPfxdState.isKnown() && vfpuPfxdState.pfxDst.enabled) {
+    		return false;
+    	}
+    	if (vfpuPfxsState != null && vfpuPfxsState.isKnown() && vfpuPfxsState.pfxSrc.enabled) {
+    		return false;
+    	}
+    	if (vfpuPfxtState != null && vfpuPfxtState.isKnown() && vfpuPfxtState.pfxSrc.enabled) {
+    		return false;
+    	}
+
+    	return true;
     }
 
     private boolean isPfxDstMasked(VfpuPfxDstState pfxDstState, int n) {
@@ -797,6 +810,26 @@ public class CompilerContext implements ICompilerContext {
 	        mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "jump", "(II)V");
 	        mv.visitJumpInsn(Opcodes.GOTO, continueLabel);
         }
+
+        mv.visitLabel(isReturnAddress);
+        mv.visitInsn(Opcodes.POP);
+        mv.visitLabel(continueLabel);
+    }
+
+    private void visitContinueToAddressInRegister(int reg) {
+        //      if (x != cpu.reg) {
+        //          RuntimeContext.jump(x, cpu.reg);
+        //      }
+        Label continueLabel = new Label();
+        Label isReturnAddress = new Label();
+
+        mv.visitInsn(Opcodes.DUP);
+        loadRegister(reg);
+        visitJump(Opcodes.IF_ICMPEQ, isReturnAddress);
+
+        loadRegister(reg);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "jump", "(II)V");
+        mv.visitJumpInsn(Opcodes.GOTO, continueLabel);
 
         mv.visitLabel(isReturnAddress);
         mv.visitInsn(Opcodes.POP);
@@ -1684,6 +1717,9 @@ public class CompilerContext implements ICompilerContext {
     }
 
     private boolean isCodeInstructionInKernelMemory() {
+    	if (codeInstruction == null) {
+    		return false;
+    	}
     	return codeInstruction.getAddress() < MemoryMap.START_USERSPACE;
     }
 
@@ -1831,7 +1867,8 @@ public class CompilerContext implements ICompilerContext {
     		mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(ThreadManForUser.class), "isDispatchThreadEnabled", "()Z");
     		Label returnError = new Label();
     		mv.visitJumpInsn(Opcodes.IFEQ, returnError);
-    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, Type.getInternalName(Interrupts.class), "isInterruptsEnabled", "()Z");
+    		loadProcessor();
+    		mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(Processor.class), "isInterruptsEnabled", "()Z");
     		Label noError = new Label();
     		mv.visitJumpInsn(Opcodes.IFNE, noError);
 
@@ -1993,6 +2030,12 @@ public class CompilerContext implements ICompilerContext {
     		HLEModuleFunction func = HLEModuleManager.getInstance().getFunctionFromSyscallCode(code);
 
     		boolean fastSyscall = isFastSyscall(code);
+
+    		// Under LLE, all syscalls are "fast" syscalls
+    		if (func == null && RuntimeContextLLE.isLLEActive()) {
+    			fastSyscall = true;
+    		}
+
     		if (!fastSyscall) {
     			storePc();
     		}
@@ -2006,9 +2049,24 @@ public class CompilerContext implements ICompilerContext {
     		if (func == null) {
     	    	loadImm(code);
     	    	if (fastSyscall) {
-    	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscallFast", "(I)V");
+    	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscallFast", "(I)I");
     	    	} else {
-    	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscall", "(I)V");
+    	    		mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "syscall", "(I)I");
+    	    	}
+
+    	    	if (getCodeInstruction() != null) {
+    	    		if (getCodeInstruction().isDelaySlot()) {
+    	    			visitContinueToAddressInRegister(_ra);
+    	    		} else {
+    	    			visitContinueToAddress(getCodeInstruction().getAddress() + 4, false);
+    	    		}
+    	    	} else {
+    	    		mv.visitInsn(Opcodes.POP);
+    	    	}
+
+    	    	if (RuntimeContextLLE.isLLEActive()) {
+        			// We do not destroy the temp registers for LLE syscalls
+    	    		destroyTempRegisters = false;
     	    	}
         	} else {
         		visitSyscall(func, fastSyscall);
@@ -2040,16 +2098,13 @@ public class CompilerContext implements ICompilerContext {
 	        	mv.visitLdcInsn(0xDEADBEEFDEADBEEFL);
 	        	storeHilo();
     		}
+    	}
 
-        	// loadcore.prx is generating the following sequence for unmapped imports:
-        	//     syscall 0x00015
-        	//     nop
-        	// As there is no instruction to return to the caller, we
-        	// need to handle this special case.
-	    	if (code == syscallLoadCoreUnmappedImport) {
-	    		loadRegister(_ra);
-	    		visitJump();
-	    	}
+    	// For code blocks consisting of a single syscall instruction,
+    	// generate an end for the code block.
+    	if (getCodeBlock().getLength() == 1) {
+    		loadRegister(_ra);
+    		visitJump();
     	}
     }
 
@@ -2224,6 +2279,38 @@ public class CompilerContext implements ICompilerContext {
         return !codeInstruction.isBranchTarget() && !codeInstruction.isBranching();
     }
 
+    private boolean previousInstructionModifiesInterruptState(CodeInstruction codeInstruction) {
+    	CodeInstruction previousInstruction = getCodeBlock().getCodeInstruction(codeInstruction.getAddress() - 4);
+    	if (previousInstruction == null) {
+    		return false;
+    	}
+
+    	return previousInstruction.hasFlags(FLAG_MODIFIES_INTERRUPT_STATE);
+    }
+
+    private void startInstructionLLE(CodeInstruction codeInstruction) {
+    	// Check for a pending interrupt only for instructions not being in a delay slot
+    	if (codeInstruction.isDelaySlot()) {
+    		return;
+    	}
+
+    	// TO avoid checking too often for a pending interrupt, check
+    	// only for instructions being the target of the branch or for those marked
+    	// as potentially modifying the interrupt state.
+    	if (!codeInstruction.isBranchTarget() && !previousInstructionModifiesInterruptState(codeInstruction)) {
+    		return;
+    	}
+
+    	Label noPendingInterrupt = new Label();
+        mv.visitFieldInsn(Opcodes.GETSTATIC, runtimeContextLLEInternalName, "pendingInterruptIPbits", "I");
+        mv.visitJumpInsn(Opcodes.IFEQ, noPendingInterrupt);
+        int returnAddress = codeInstruction.getAddress();
+        loadImm(returnAddress);
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextLLEInternalName, "checkPendingInterruptException", "(I)I");
+        visitContinueToAddress(returnAddress, false);
+        mv.visitLabel(noPendingInterrupt);
+    }
+
     @SuppressWarnings("unused")
 	public void startInstruction(CodeInstruction codeInstruction) {
     	if (RuntimeContext.enableLineNumbers) {
@@ -2234,9 +2321,13 @@ public class CompilerContext implements ICompilerContext {
     		}
     	}
 
-		// The pc is used by the DebuggerMemory
-    	if (Memory.getInstance() instanceof DebuggerMemory) {
+		// The pc is used by the DebuggerMemory or the LLE/MMIO
+    	if (Memory.getInstance() instanceof DebuggerMemory || RuntimeContextLLE.isLLEActive()) {
     		storePc();
+    	}
+
+    	if (RuntimeContextLLE.isLLEActive()) {
+    		startInstructionLLE(codeInstruction);
     	}
 
     	if (RuntimeContext.debugCodeInstruction) {
@@ -2301,15 +2392,15 @@ public class CompilerContext implements ICompilerContext {
 
     public void endInstruction() {
         if (codeInstruction != null) {
-            if (codeInstruction.hasFlags(Instruction.FLAG_USE_VFPU_PFXS)) {
+            if (codeInstruction.hasFlags(Instruction.FLAG_USES_VFPU_PFXS)) {
                 disablePfxSrc(vfpuPfxsState);
             }
 
-            if (codeInstruction.hasFlags(Instruction.FLAG_USE_VFPU_PFXT)) {
+            if (codeInstruction.hasFlags(Instruction.FLAG_USES_VFPU_PFXT)) {
                 disablePfxSrc(vfpuPfxtState);
             }
 
-            if (codeInstruction.hasFlags(Instruction.FLAG_USE_VFPU_PFXD)) {
+            if (codeInstruction.hasFlags(Instruction.FLAG_USES_VFPU_PFXD)) {
                 disablePfxDst(vfpuPfxdState);
             }
         }
@@ -2351,11 +2442,14 @@ public class CompilerContext implements ICompilerContext {
     }
 
     public static String getClassName(int address, int instanceIndex) {
-    	return "_S1_" + instanceIndex + "_" + Integer.toHexString(address).toUpperCase();
+    	return String.format("_S1_%d_0x%08X", instanceIndex, address);
     }
 
     public static int getClassAddress(String name) {
-    	String hexAddress = name.substring(name.lastIndexOf("_") + 1);
+    	String hexAddress = name.substring(name.lastIndexOf("0x") + 2);
+    	if (hexAddress.length() == 8) {
+    		return (int) Long.parseLong(hexAddress, 16);
+    	}
 
         return Integer.parseInt(hexAddress, 16);
     }
@@ -2651,6 +2745,9 @@ public class CompilerContext implements ICompilerContext {
 	}
 
 	private boolean useMMIO() {
+		if (codeInstruction == null) {
+			return false;
+		}
 		return codeInstruction.useMMIO();
 	}
 
@@ -3500,7 +3597,7 @@ public class CompilerContext implements ICompilerContext {
 	@Override
 	public void prepareVdForStoreInt(int vsize, int vd, int n) {
 		if (pfxVdOverlap && n < vsize - 1) {
-			// Do nothing, value will be store in tmp local variable
+			// Do nothing, value will be stored in tmp local variable
 		} else {
 			prepareVRegisterForStore(vsize, vd, n, vfpuPfxdState, false);
 		}
@@ -3773,23 +3870,23 @@ public class CompilerContext implements ICompilerContext {
     public void startPfxCompiled(boolean isFloat) {
         interpretPfxLabel = null;
 
-        if (codeInstruction.hasFlags(Instruction.FLAG_USE_VFPU_PFXS)) {
+        if (codeInstruction.hasFlags(Instruction.FLAG_USES_VFPU_PFXS)) {
             startPfxCompiled(vfpuPfxsState, "pfxs", Type.getDescriptor(PfxSrc.class), Type.getInternalName(PfxSrc.class), isFloat);
         }
 
-        if (codeInstruction.hasFlags(Instruction.FLAG_USE_VFPU_PFXT)) {
+        if (codeInstruction.hasFlags(Instruction.FLAG_USES_VFPU_PFXT)) {
             startPfxCompiled(vfpuPfxtState, "pfxt", Type.getDescriptor(PfxSrc.class), Type.getInternalName(PfxSrc.class), isFloat);
         }
 
-        if (codeInstruction.hasFlags(Instruction.FLAG_USE_VFPU_PFXD)) {
+        if (codeInstruction.hasFlags(Instruction.FLAG_USES_VFPU_PFXD)) {
             startPfxCompiled(vfpuPfxdState, "pfxd", Type.getDescriptor(PfxDst.class), Type.getInternalName(PfxDst.class), isFloat);
         }
 
         pfxVdOverlap = false;
-		if (getCodeInstruction().hasFlags(Instruction.FLAG_USE_VFPU_PFXS | Instruction.FLAG_USE_VFPU_PFXD)) {
+		if (getCodeInstruction().hasFlags(Instruction.FLAG_USES_VFPU_PFXS | Instruction.FLAG_USES_VFPU_PFXD)) {
 			pfxVdOverlap |= isVsVdOverlap();
 		}
-		if (getCodeInstruction().hasFlags(Instruction.FLAG_USE_VFPU_PFXT | Instruction.FLAG_USE_VFPU_PFXD)) {
+		if (getCodeInstruction().hasFlags(Instruction.FLAG_USES_VFPU_PFXT | Instruction.FLAG_USES_VFPU_PFXD)) {
 			pfxVdOverlap |= isVtVdOverlap();
 		}
     }
@@ -3943,7 +4040,7 @@ public class CompilerContext implements ICompilerContext {
 	@Override
 	public void compileVFPUInstr(Object cstBefore, int opcode, String mathFunction) {
 		int vsize = getVsize();
-		boolean useVt = getCodeInstruction().hasFlags(Instruction.FLAG_USE_VFPU_PFXT);
+		boolean useVt = getCodeInstruction().hasFlags(Instruction.FLAG_USES_VFPU_PFXT);
 
 		if (mathFunction == null &&
 		    opcode == Opcodes.NOP &&
@@ -4466,8 +4563,8 @@ public class CompilerContext implements ICompilerContext {
 		return compileSWLWsequence(baseRegister, offsets, registers, true);
 	}
 
-	public void loadEpc() {
-    	loadCp0();
-        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, Type.getInternalName(Cp0State.class), "getEpc", "()I");
+	public void compileEret() {
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, runtimeContextInternalName, "executeEret", "()I");
+    	visitJump();
 	}
 }

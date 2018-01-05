@@ -20,6 +20,7 @@ import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static jpcsp.Allegrex.Common._s0;
 import static jpcsp.Allegrex.Common._s1;
+import static jpcsp.HLE.VFS.local.LocalVirtualFileSystem.getMsFileName;
 import static jpcsp.HLE.kernel.types.SceUtilitySavedataParam.ERROR_SAVEDATA_CANCELLED;
 import static jpcsp.HLE.kernel.types.SceUtilityScreenshotParams.PSP_UTILITY_SCREENSHOT_FORMAT_JPEG;
 import static jpcsp.HLE.kernel.types.SceUtilityScreenshotParams.PSP_UTILITY_SCREENSHOT_FORMAT_PNG;
@@ -302,8 +303,10 @@ public class sceUtility extends HLEModule {
     private static final String dummyNetParamName = "NetConf #%d";
     private final static int utilityThreadActionRegister = _s0; // $s0 is preserved across calls
     private final static int utilityThreadDelayRegister = _s1; // $s1 is preserved across calls
-    private final static int UTILITY_THREAD_ACTION_SHUTDOWN_START = 0;
-    private final static int UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE = 1;
+    private final static int UTILITY_THREAD_ACTION_INIT_START = 0;
+    private final static int UTILITY_THREAD_ACTION_INIT_COMPLETE = 1;
+    private final static int UTILITY_THREAD_ACTION_SHUTDOWN_START = 2;
+    private final static int UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE = 3;
     protected HashMap<Integer, SceModule> loadedAvModules = new HashMap<Integer, SceModule>();
     protected HashMap<Integer, String> waitingAvModules = new HashMap<Integer, String>();
     protected HashMap<Integer, SceModule> loadedUsbModules = new HashMap<Integer, SceModule>();
@@ -528,6 +531,7 @@ public class sceUtility extends HLEModule {
     }
 
     public void hleUtilityThread(Processor processor) {
+    	SceKernelThreadInfo currentThread = Modules.ThreadManForUserModule.getCurrentThread();
     	int action = processor.cpu.getRegister(utilityThreadActionRegister);
     	int delay = processor.cpu.getRegister(utilityThreadDelayRegister);
     	if (log.isDebugEnabled()) {
@@ -535,7 +539,36 @@ public class sceUtility extends HLEModule {
     	}
 
     	switch (action) {
+    		case UTILITY_THREAD_ACTION_INIT_START:
+                // Starting the init action.
+                // Lock the volatile mem, it is used until sceUtilityXXXShutdown
+                int lockResult = Modules.sceSuspendForUserModule.hleKernelVolatileMemLock(0, false);
+                if (lockResult < 0) {
+                	log.error(String.format("hleUtilityThread init thread cannot lock the volatile mem 0x%08X", lockResult));
+                }
+
+    			currentThread.cpuContext.setRegister(utilityThreadActionRegister, UTILITY_THREAD_ACTION_INIT_COMPLETE);
+                if (currentThread.isRunning()) {
+	    			// Wait a short time before completing the init.
+	    			if (delay > 0) {
+	    				Modules.ThreadManForUserModule.hleKernelDelayThread(delay, false);
+	    			}
+                }
+    			break;
+    		case UTILITY_THREAD_ACTION_INIT_COMPLETE:
+                // Completing the init action.
+                // Move to status VISIBLE
+            	startedDialogState.status = PSP_UTILITY_DIALOG_STATUS_VISIBLE;
+            	startedDialogState.startVisibleTimeMillis = Emulator.getClock().currentTimeMillis();
+                if (!startedDialogState.hasDialog()) {
+                	startedDialogState.dialogState = UtilityDialogState.DialogState.quit;
+                }
+
+                processor.cpu._v0 = 0;
+                Modules.ThreadManForUserModule.hleKernelExitDeleteThread();
+    			break;
     		case UTILITY_THREAD_ACTION_SHUTDOWN_START:
+                // Starting the shutdown action.
     			// Unlock the volatile mem
                 int unlockResult = Modules.sceSuspendForUserModule.hleKernelVolatileMemUnlock(0);
                 if (unlockResult < 0) {
@@ -546,10 +579,13 @@ public class sceUtility extends HLEModule {
                 	mem.memset(KERNEL_VOLATILE_MEM_START, (byte) 0, KERNEL_VOLATILE_MEM_SIZE);
                 }
 
-                // Starting the shutdown action.
-    			// Wait a short time before completing the shutdown.
-    			processor.cpu.setRegister(utilityThreadActionRegister, UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE);
-    			Modules.ThreadManForUserModule.hleKernelDelayThread(delay, false);
+                currentThread.cpuContext.setRegister(utilityThreadActionRegister, UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE);
+                if (currentThread.isRunning()) {
+	    			// Wait a short time before completing the shutdown.
+	    			if (delay > 0) {
+	    				Modules.ThreadManForUserModule.hleKernelDelayThread(delay, false);
+	    			}
+                }
     			break;
 	    	case UTILITY_THREAD_ACTION_SHUTDOWN_COMPLETE:
 	    		// Completing the shutdown action.
@@ -694,12 +730,6 @@ public class sceUtility extends HLEModule {
                 return SceKernelErrors.ERROR_UTILITY_INVALID_STATUS;
             }
 
-            // Lock the volatile mem, it is used until sceUtilityXXXShutdown
-            int lockResult = Modules.sceSuspendForUserModule.hleKernelVolatileMemLock(0, false);
-            if (lockResult < 0) {
-            	return lockResult;
-            }
-
             this.paramsAddr = paramsAddr;
             this.params = createParams();
 
@@ -717,12 +747,11 @@ public class sceUtility extends HLEModule {
                 dialogState = DialogState.init;
                 Modules.sceUtilityModule.startedDialogState = this;
 
-                // Move directly to status VISIBLE when there is no dialog needed.
-                if (!hasDialog()) {
-                    status = PSP_UTILITY_DIALOG_STATUS_VISIBLE;
-                    dialogState = DialogState.quit;
-                    startVisibleTimeMillis = Emulator.getClock().currentTimeMillis();
-                }
+                // Execute the init thread, it will update the status
+                SceKernelThreadInfo initThread = Modules.ThreadManForUserModule.hleKernelCreateThread("SceUtilityInit", ThreadManForUser.UTILITY_LOOP_ADDRESS, params.base.accessThread, 0x800, 0, 0, SysMemUserForUser.USER_PARTITION_ID);
+                Modules.ThreadManForUserModule.hleKernelStartThread(initThread, 0, 0, initThread.gpReg_addr);
+                initThread.cpuContext.setRegister(utilityThreadActionRegister, UTILITY_THREAD_ACTION_INIT_START);
+                initThread.cpuContext.setRegister(utilityThreadDelayRegister, getInitDelay());
             }
 
             return validityResult;
@@ -760,13 +789,8 @@ public class sceUtility extends HLEModule {
 
             int previousStatus = status;
 
+            // Remark: moving from INIT status to VISIBLE is performed in the init thread.
             // Remark: moving from FINISHED status to NONE is performed in the shutdown thread.
-
-            if (status == PSP_UTILITY_DIALOG_STATUS_INIT && isReadyForVisible()) {
-                // Move from INIT to VISIBLE
-                status = PSP_UTILITY_DIALOG_STATUS_VISIBLE;
-                startVisibleTimeMillis = Emulator.getClock().currentTimeMillis();
-            }
 
             // After moving to status NONE, subsequent calls of sceUtilityXXXGetStatus
             // keep returning status NONE (if of the same type) and not ERROR_UTILITY_WRONG_TYPE.
@@ -939,6 +963,10 @@ public class sceUtility extends HLEModule {
             	return 50000;
         	}
 
+        	return 0;
+        }
+
+        protected int getInitDelay() {
         	return 0;
         }
     }
@@ -1597,8 +1625,8 @@ public class sceUtility extends HLEModule {
                                 stat.mtime.write(mem, entryAddr + 36);
                             }
                             String entryName = entries[i].substring(savedataParams.gameName.length());
-                            // File names are always returned in upper case
-                            entryName = entryName.toUpperCase();
+                            // File names are upper cased in some conditions
+                            entryName = getMsFileName(entryName);
                             Utilities.writeStringNZ(mem, entryAddr + 52, 20, entryName);
 
                             if (log.isDebugEnabled()) {
@@ -1640,8 +1668,8 @@ public class sceUtility extends HLEModule {
 
                         // List all files in the savedata (normal and/or encrypted).
                         for (int i = 0; i < maxNumEntries; i++) {
-                            // File names are always returned in upper case
-                            String entry = entries[i].toUpperCase();
+                            // File names are upper cased in some conditions
+                            String entry = getMsFileName(entries[i]);
                             String filePath = path + "/" + entry;
                             SceIoStat stat = Modules.IoFileMgrForUserModule.statFile(filePath);
 
@@ -2121,7 +2149,7 @@ public class sceUtility extends HLEModule {
 
             if (status == PSP_UTILITY_DIALOG_STATUS_VISIBLE && !screenshotParams.isContModeAuto() && !screenshotParams.isContModeFinish() && Memory.isAddressGood(screenshotParams.imgFrameBufAddr)) {
             	Buffer buffer = Memory.getInstance().getBuffer(screenshotParams.imgFrameBufAddr, screenshotParams.imgFrameBufWidth * screenshotParams.displayHeigth * IRenderingEngine.sizeOfTextureType[screenshotParams.imgPixelFormat]);
-            	String directoyName = String.format("ms0/PSP/SCREENSHOT/%s/", screenshotParams.screenshotID);
+            	String directoyName = String.format(Settings.getInstance().getDirectoryMapping("ms0") + "PSP/SCREENSHOT/%s/", screenshotParams.screenshotID);
             	new File(directoyName).mkdirs();
             	String fileName = null;
             	String fileSuffix = screenshotParams.imgFormat == PSP_UTILITY_SCREENSHOT_FORMAT_JPEG ? "jpeg" : "png";

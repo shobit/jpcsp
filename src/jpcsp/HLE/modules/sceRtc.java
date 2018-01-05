@@ -25,6 +25,7 @@ import java.util.TimeZone;
 import jpcsp.Clock.TimeNanos;
 import jpcsp.Emulator;
 import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
 import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.CanBeNull;
 import jpcsp.HLE.HLEFunction;
@@ -57,10 +58,12 @@ public class sceRtc extends HLEModule {
     final static int PSP_TIME_SECONDS_IN_MONTH = 2629743;
     final static int PSP_TIME_SECONDS_IN_YEAR = 31556926;
 
+    // Number of milliseconds between 1900-01-01 (reference date on a PSP)
+    // and 1970-01-01 (reference date on Java)
     private long rtcMagicOffset = 62135596800000000L;
     protected static SimpleDateFormat rfc3339 = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ");
 
-    protected long hleGetCurrentTick() {
+    public long hleGetCurrentTick() {
     	TimeNanos timeNanos = Emulator.getClock().currentTimeNanos();
     	return (timeNanos.micros + timeNanos.millis * 1000) + timeNanos.seconds * 1000000L + rtcMagicOffset;
     }
@@ -141,7 +144,7 @@ public class sceRtc extends HLEModule {
     }
 
     @HLEFunction(nid = 0x4CFA57B0, version = 150)
-    public int sceRtcGetCurrentClock(TPointer addr, int tz) {
+    public int sceRtcGetCurrentClock(@BufferInfo(lengthInfo=LengthInfo.fixedLength, length=16, usage=Usage.out) TPointer addr, int tz) {
         ScePspDateTime pspTime = new ScePspDateTime(tz);
         pspTime.write(addr);
 
@@ -341,7 +344,7 @@ public class sceRtc extends HLEModule {
 
     /** Set a pspTime struct based on ticks. */
     @HLEFunction(nid = 0x7ED29E40, version = 150)
-    public int sceRtcSetTick(TPointer timeAddr, TPointer64 ticksAddr) {
+    public int sceRtcSetTick(@BufferInfo(lengthInfo=LengthInfo.fixedLength, length=16, usage=Usage.out) TPointer timeAddr, @BufferInfo(usage=Usage.in) TPointer64 ticksAddr) {
         long ticks = ticksAddr.getValue() - rtcMagicOffset;
         ScePspDateTime time = ScePspDateTime.fromMicros(ticks);
         time.write(timeAddr);

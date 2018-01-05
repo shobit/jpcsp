@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.RandomAccessFile;
 import java.net.InetAddress;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
@@ -71,7 +72,7 @@ import jpcsp.memory.MemoryWriter;
 
 public class Utilities {
     private static final int[] round4 = {0, 3, 2, 1};
-    private static final String lineSeparator = System.getProperty("line.separator");
+    public  static final String lineSeparator = System.getProperty("line.separator");
     private static final char[] lineTemplate = (lineSeparator + "0x00000000 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  >................<").toCharArray();
     private static final char[] hexDigits = "0123456789ABCDEF".toCharArray();
     private static final char[] ascii = new char[256];
@@ -312,6 +313,20 @@ public class Utilities {
 
     public static int readWord(ByteBuffer buf) throws IOException {
         return getUnsignedByte(buf) | (getUnsignedByte(buf) << 8) | (getUnsignedByte(buf) << 16) | (getUnsignedByte(buf) << 24);
+    }
+
+    public static int read8(IVirtualFile vFile) throws IOException {
+    	byte[] buffer = new byte[1];
+    	int result = vFile.ioRead(buffer, 0, buffer.length);
+    	if (result < buffer.length) {
+    		return 0;
+    	}
+
+    	return buffer[0] & 0xFF;
+    }
+
+    public static int read32(IVirtualFile vFile) throws IOException {
+    	return read8(vFile) | (read8(vFile) << 8) | (read8(vFile) << 16) | (read8(vFile) << 24);
     }
 
     public static void writeWord(ByteBuffer buf, int value) {
@@ -777,21 +792,20 @@ public class Utilities {
     	final int numberLines = length >> 4;
     	final char[] chars = new char[numberLines * lineTemplate.length];
     	final int lineOffset = lineSeparator.length() + 2;
-    	address &= Memory.addressMask;
 
-    	for (int i = 0, j = 0, a = address >> 2; i < numberLines; i++, j += lineTemplate.length, address += 16) {
+    	for (int i = 0, j = 0, a = (address & Memory.addressMask) >> 2; i < numberLines; i++, j += lineTemplate.length, address += 16) {
     		System.arraycopy(lineTemplate, 0, chars, j, lineTemplate.length);
 
     		// Address field
     		int k = j + lineOffset;
-    		chars[k++] = hexDigits[(address >> 28)      ];
-    		chars[k++] = hexDigits[(address >> 24) & 0xF];
-    		chars[k++] = hexDigits[(address >> 20) & 0xF];
-    		chars[k++] = hexDigits[(address >> 16) & 0xF];
-    		chars[k++] = hexDigits[(address >> 12) & 0xF];
-    		chars[k++] = hexDigits[(address >>  8) & 0xF];
-    		chars[k++] = hexDigits[(address >>  4) & 0xF];
-    		chars[k++] = hexDigits[(address      ) & 0xF];
+    		chars[k++] = hexDigits[(address >>> 28)      ];
+    		chars[k++] = hexDigits[(address >>  24) & 0xF];
+    		chars[k++] = hexDigits[(address >>  20) & 0xF];
+    		chars[k++] = hexDigits[(address >>  16) & 0xF];
+    		chars[k++] = hexDigits[(address >>  12) & 0xF];
+    		chars[k++] = hexDigits[(address >>   8) & 0xF];
+    		chars[k++] = hexDigits[(address >>   4) & 0xF];
+    		chars[k++] = hexDigits[(address       ) & 0xF];
     		k++;
 
     		// First 32-bit value
@@ -900,6 +914,13 @@ public class Utilities {
 
     	// Convenience function using default step and bytesPerLine
         return getMemoryDump(address, length, 1, 16);
+    }
+
+    public static String getMemoryDump(Memory mem, int address, int length) {
+    	IMemoryReader memoryReader = MemoryReader.getMemoryReader(mem, address, length, 1);
+    	IMemoryReader charReader = MemoryReader.getMemoryReader(mem, address, length, 1);
+
+    	return getMemoryDump(address, length, 1, 16, memoryReader, charReader);
     }
 
     public static String getMemoryDump(int address, int length, int step, int bytesPerLine) {
@@ -1852,5 +1873,58 @@ public class Utilities {
 		}
 
 		return functionName;
+    }
+
+    public static void addHex(StringBuilder s, int value) {
+    	if (value == 0) {
+    		s.append('0');
+    		return;
+    	}
+
+    	int shift = 28 - (Integer.numberOfLeadingZeros(value) & 0x3C);
+    	for (; shift >= 0; shift -= 4) {
+    		int digit = (value >> shift) & 0xF;
+    		s.append(hexDigits[digit]);
+    	}
+    }
+
+    public static void addAddressHex(StringBuilder s, int address) {
+		s.append(hexDigits[(address >>> 28)      ]);
+		s.append(hexDigits[(address >>  24) & 0xF]);
+		s.append(hexDigits[(address >>  20) & 0xF]);
+		s.append(hexDigits[(address >>  16) & 0xF]);
+		s.append(hexDigits[(address >>  12) & 0xF]);
+		s.append(hexDigits[(address >>   8) & 0xF]);
+		s.append(hexDigits[(address >>   4) & 0xF]);
+		s.append(hexDigits[(address       ) & 0xF]);
+    }
+
+    public static boolean hasBit(int value, int bit) {
+    	return (value & (1 << bit)) != 0;
+    }
+
+    public static int setBit(int value, int bit) {
+    	return value | (1 << bit);
+    }
+
+    public static int clearBit(int value, int bit) {
+    	return value & ~(1 << bit);
+    }
+
+    public static ByteBuffer readAsByteBuffer(RandomAccessFile raf) throws IOException {
+        byte[] bytes = new byte[(int) raf.length()];
+        int offset = 0;
+        // Read large files by chunks.
+        while (offset < bytes.length) {
+            int len = raf.read(bytes, offset, Math.min(10 * 1024, bytes.length - offset));
+            if (len < 0) {
+                break;
+            }
+            if (len > 0) {
+                offset += len;
+            }
+        }
+
+        return ByteBuffer.wrap(bytes, 0, offset);
     }
 }

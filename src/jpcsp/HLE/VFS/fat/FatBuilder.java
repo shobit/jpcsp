@@ -41,11 +41,13 @@ public class FatBuilder {
     public final static int firstClusterNumber = 2;
 	private final FatVirtualFile vFile;
 	private final IVirtualFileSystem vfs;
+	private final int maxNumberClusters;
     private int firstFreeCluster;
 
-	public FatBuilder(FatVirtualFile vFile, IVirtualFileSystem vfs) {
+	public FatBuilder(FatVirtualFile vFile, IVirtualFileSystem vfs, int maxNumberClusters) {
 		this.vFile = vFile;
 		this.vfs = vfs;
+		this.maxNumberClusters = maxNumberClusters;
 
 		firstFreeCluster = firstClusterNumber;
 	}
@@ -53,7 +55,7 @@ public class FatBuilder {
 	public FatFileInfo scan() {
 		// Allocate a whole cluster for the root directory
 		int[] rootDirectoryClusters = allocateClusters(vFile.getClusterSize());
-		FatFileInfo rootDirectory = new FatFileInfo(null, null, true, false, null, 0);
+		FatFileInfo rootDirectory = new FatFileInfo(vFile.getDeviceName(), null, null, true, false, null, 0);
 		rootDirectory.setParentDirectory(rootDirectory);
 
 		scan(null, rootDirectory);
@@ -61,7 +63,12 @@ public class FatBuilder {
 		setClusters(rootDirectory, rootDirectoryClusters);
 
 		if (log.isDebugEnabled()) {
+			log.debug(String.format("Using 0x%X clusters out of 0x%X", firstFreeCluster, maxNumberClusters));
 			debugScan(rootDirectory);
+		}
+
+		if (firstFreeCluster > maxNumberClusters) {
+			log.error(String.format("Too many files in the Fat partition: required clusters=0x%X, max clusters=0x%X", firstFreeCluster, maxNumberClusters));
 		}
 
 		return rootDirectory;
@@ -147,7 +154,7 @@ public class FatBuilder {
 			if (vfs.ioDread(dirName, dir) >= 0) {
 				boolean directory = (dir.stat.attr & 0x10) != 0;
 				boolean readOnly = (dir.stat.mode & 0x2) == 0;
-				FatFileInfo fileInfo = new FatFileInfo(dirName, dir.filename, directory, readOnly, dir.stat.mtime, dir.stat.size);
+				FatFileInfo fileInfo = new FatFileInfo(vFile.getDeviceName(), dirName, dir.filename, directory, readOnly, dir.stat.mtime, dir.stat.size);
 
 				parent.addChild(fileInfo);
 
@@ -428,7 +435,11 @@ public class FatBuilder {
 			storeSectorInt16(directoryData, offset + 26, 0); // Empty file
 		}
 
-		storeSectorInt32(directoryData, offset + 28, (int) fileInfo.getFileSize());
+		int fileSize = (int) fileInfo.getFileSize();
+		if (fileInfo.isDirectory()) {
+			fileSize = 0;
+		}
+		storeSectorInt32(directoryData, offset + 28, fileSize);
 
 		return directoryData;
 	}

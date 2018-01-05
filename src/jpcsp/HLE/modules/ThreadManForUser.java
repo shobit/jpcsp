@@ -136,7 +136,6 @@ import jpcsp.HLE.kernel.types.ThreadWaitInfo;
 import jpcsp.HLE.kernel.types.pspBaseCallback;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo.RegisteredCallbacks;
 import jpcsp.HLE.modules.SysMemUserForUser.SysMemInfo;
-import jpcsp.hardware.Interrupts;
 import jpcsp.memory.IMemoryReader;
 import jpcsp.memory.IMemoryWriter;
 import jpcsp.memory.MemoryReader;
@@ -828,6 +827,10 @@ public class ThreadManForUser extends HLEModule {
     	return (AllegrexOpcodes.ADDIU << 26) | (rs << 21) | (rt << 16) | (imm16 & 0xFFFF);
     }
 
+    public static int ORI(int rt, int rs, int imm16) {
+    	return (AllegrexOpcodes.ORI << 26) | (rs << 21) | (rt << 16) | (imm16 & 0xFFFF);
+    }
+
     public static int SW(int rt, int base, int imm16) {
     	return (AllegrexOpcodes.SW << 26) | (base << 21) | (rt << 16) | (imm16 & 0xFFFF);
     }
@@ -911,9 +914,8 @@ public class ThreadManForUser extends HLEModule {
     private void installIdleThreads() {
         IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(IDLE_THREAD_ADDRESS, 0x20, 4);
         memoryWriter.writeNext(MOVE(_a0, _zr));
+        memoryWriter.writeNext(B(-2));
         memoryWriter.writeNext(SYSCALL("sceKernelDelayThread"));
-        memoryWriter.writeNext(B(-3));
-        memoryWriter.writeNext(NOP());
         memoryWriter.flush();
 
         int idleThreadStackSize = 0x1000;
@@ -939,25 +941,22 @@ public class ThreadManForUser extends HLEModule {
     private void installThreadExitHandler() {
         IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(THREAD_EXIT_HANDLER_ADDRESS, 0x10, 4);
         memoryWriter.writeNext(MOVE(_a0, _v0));
-        memoryWriter.writeNext(SYSCALL("hleKernelExitThread"));
         memoryWriter.writeNext(JR());
-        memoryWriter.writeNext(NOP());
+        memoryWriter.writeNext(SYSCALL("hleKernelExitThread"));
         memoryWriter.flush();
     }
 
     public static void installHLESyscall(int address, HLEModule hleModule, String name) {
         IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(address, 12, 4);
-        memoryWriter.writeNext(SYSCALL(hleModule, name));
         memoryWriter.writeNext(JR());
-        memoryWriter.writeNext(NOP());
+        memoryWriter.writeNext(SYSCALL(hleModule, name));
         memoryWriter.flush();
     }
 
     private void installHLESyscall(int address, String name) {
         IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(address, 12, 4);
-        memoryWriter.writeNext(SYSCALL(name));
         memoryWriter.writeNext(JR());
-        memoryWriter.writeNext(NOP());
+        memoryWriter.writeNext(SYSCALL(name));
         memoryWriter.flush();
     }
 
@@ -967,9 +966,8 @@ public class ThreadManForUser extends HLEModule {
 
     private void installLoopHandler(String hleFunctionName, int address) {
         IMemoryWriter memoryWriter = MemoryWriter.getMemoryWriter(address, 0x20, 4);
+        memoryWriter.writeNext(B(-1));
         memoryWriter.writeNext(SYSCALL(hleFunctionName));
-        memoryWriter.writeNext(B(-2));
-        memoryWriter.writeNext(NOP());
         memoryWriter.flush();
     }
 
@@ -1167,7 +1165,7 @@ public class ThreadManForUser extends HLEModule {
             return false;
         }
 
-        if (Interrupts.isInterruptsDisabled()) {
+        if (Emulator.getProcessor().isInterruptsDisabled()) {
             // No context switching when interrupts are disabled
             if (log.isDebugEnabled()) {
                 log.debug("Interrupts are disabled, not context switching to " + newThread);
@@ -3371,17 +3369,17 @@ public class ThreadManForUser extends HLEModule {
     }
 
     @HLEFunction(nid = 0xBED27435, version = 150, checkInsideInterrupt = true, checkDispatchThreadEnabled = true)
-    public int sceKernelAllocateVpl(@CheckArgument("checkVplID") int uid, int size, TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
+    public int sceKernelAllocateVpl(@CheckArgument("checkVplID") int uid, int size, @BufferInfo(usage=Usage.out) TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
         return Managers.vpl.sceKernelAllocateVpl(uid, size, dataAddr, timeoutAddr);
     }
 
     @HLEFunction(nid = 0xEC0A693F, version = 150, checkInsideInterrupt = true, checkDispatchThreadEnabled = true)
-    public int sceKernelAllocateVplCB(@CheckArgument("checkVplID") int uid, int size, TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
+    public int sceKernelAllocateVplCB(@CheckArgument("checkVplID") int uid, int size, @BufferInfo(usage=Usage.out) TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
         return Managers.vpl.sceKernelAllocateVplCB(uid, size, dataAddr, timeoutAddr);
     }
 
     @HLEFunction(nid = 0xAF36D708, version = 150)
-    public int sceKernelTryAllocateVpl(@CheckArgument("checkVplID") int uid, int size, TPointer32 dataAddr) {
+    public int sceKernelTryAllocateVpl(@CheckArgument("checkVplID") int uid, int size, @BufferInfo(usage=Usage.out) TPointer32 dataAddr) {
         return Managers.vpl.sceKernelTryAllocateVpl(uid, size, dataAddr);
     }
 
@@ -3411,17 +3409,17 @@ public class ThreadManForUser extends HLEModule {
     }
 
     @HLEFunction(nid = 0xD979E9BF, version = 150, checkInsideInterrupt = true, checkDispatchThreadEnabled = true)
-    public int sceKernelAllocateFpl(@CheckArgument("checkFplID") int uid, TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
+    public int sceKernelAllocateFpl(@CheckArgument("checkFplID") int uid, @BufferInfo(usage=Usage.out) TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
         return Managers.fpl.sceKernelAllocateFpl(uid, dataAddr, timeoutAddr);
     }
 
     @HLEFunction(nid = 0xE7282CB6, version = 150, checkInsideInterrupt = true, checkDispatchThreadEnabled = true)
-    public int sceKernelAllocateFplCB(@CheckArgument("checkFplID") int uid, TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
+    public int sceKernelAllocateFplCB(@CheckArgument("checkFplID") int uid, @BufferInfo(usage=Usage.out) TPointer32 dataAddr, @CanBeNull TPointer32 timeoutAddr) {
         return Managers.fpl.sceKernelAllocateFplCB(uid, dataAddr, timeoutAddr);
     }
 
     @HLEFunction(nid = 0x623AE665, version = 150)
-    public int sceKernelTryAllocateFpl(@CheckArgument("checkFplID") int uid, TPointer32 dataAddr) {
+    public int sceKernelTryAllocateFpl(@CheckArgument("checkFplID") int uid, @BufferInfo(usage=Usage.out) TPointer32 dataAddr) {
         return Managers.fpl.sceKernelTryAllocateFpl(uid, dataAddr);
     }
 
@@ -3958,14 +3956,14 @@ public class ThreadManForUser extends HLEModule {
      * @return The current state of the dispatch thread, < 0 on error
      */
     @HLEFunction(nid = 0x3AD58B8C, version = 150, checkInsideInterrupt = true)
-    public int sceKernelSuspendDispatchThread() {
+    public int sceKernelSuspendDispatchThread(Processor processor) {
         int state = getDispatchThreadState();
 
         if (log.isDebugEnabled()) {
             log.debug("sceKernelSuspendDispatchThread() state=" + state);
         }
 
-        if (Interrupts.isInterruptsDisabled()) {
+        if (processor.isInterruptsDisabled()) {
             return SceKernelErrors.ERROR_KERNEL_INTERRUPTS_ALREADY_DISABLED;
         }
 
@@ -3981,8 +3979,8 @@ public class ThreadManForUser extends HLEModule {
      * @return 0 on success, < 0 on error
      */
     @HLEFunction(nid = 0x27E22EC2, version = 150, checkInsideInterrupt = true)
-    public int sceKernelResumeDispatchThread(int state) {
-        boolean isInterruptsDisabled = Interrupts.isInterruptsDisabled(); 
+    public int sceKernelResumeDispatchThread(Processor processor, int state) {
+        boolean isInterruptsDisabled = processor.isInterruptsDisabled(); 
 
         if (state == SCE_KERNEL_DISPATCHTHREAD_STATE_ENABLED) {
         	hleKernelResumeDispatchThread();

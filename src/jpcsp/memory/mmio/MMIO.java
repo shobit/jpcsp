@@ -16,60 +16,90 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.memory.mmio;
 
+import static jpcsp.MemoryMap.START_IO_0;
+
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
 import jpcsp.Memory;
+import jpcsp.MemoryMap;
+import jpcsp.hardware.Screen;
 
 public class MMIO extends Memory {
     private final Memory mem;
     private final Map<Integer, IMMIOHandler> handlers = new HashMap<Integer, IMMIOHandler>();
+    protected static final boolean[] validMemoryPage = new boolean[Memory.validMemoryPage.length];
 
     public MMIO(Memory mem) {
     	this.mem = mem;
     }
 
     @Override
+    public boolean allocate() {
+    	System.arraycopy(Memory.validMemoryPage, 0, validMemoryPage, 0, validMemoryPage.length);
+    	Arrays.fill(validMemoryPage, START_IO_0 >>> MEMORY_PAGE_SHIFT, (MemoryMap.END_EXCEPTIO_VEC >>> MEMORY_PAGE_SHIFT) + 1, true);
+
+        return true;
+    }
+
+    @Override
 	public void Initialise() {
     	handlers.clear();
 
-    	addHandlerRW(0xBC000000, 0x54);
-    	addHandlerRW(0xBC100000, 0x84);
-    	addHandlerRW(0xBC200000, 0x4);
-    	addHandler(0xBC300000, 0x30, new MMIOHandlerInterruptMan(0xBC300000));
+    	addHandlerRW(0xBC000000, 0x54); // Memory interface
+    	addHandler(MMIOHandlerSystemControl.BASE_ADDRESS, MMIOHandlerSystemControl.SIZE_OF, MMIOHandlerSystemControl.getInstance());
+    	addHandler(0xBC200000, 0x8, new MMIOHandlerCpuBusFrequency(0xBC200000));
+    	addHandler(MMIOHandlerInterruptMan.BASE_ADDRESS, 0x30, MMIOHandlerInterruptMan.getProxyInstance());
     	addHandler(0xBC500000, 0x10, new int[] { 0x0100 }, new MMIOHandlerTimer(0xBC500000));
     	addHandler(0xBC500010, 0x10, new int[] { 0x0100 }, new MMIOHandlerTimer(0xBC500010));
     	addHandler(0xBC500020, 0x10, new int[] { 0x0100 }, new MMIOHandlerTimer(0xBC500020));
     	addHandler(0xBC500030, 0x10, new int[] { 0x0100 }, new MMIOHandlerTimer(0xBC500030));
-    	addHandlerRW(0xBC600000, 0x14);
-    	addHandler(0xBC600000, 1, new MMIOHandlerSystemTime(0xBC600000));
-    	addHandlerRW(0xBC800000, 0x164);
-    	addHandlerRW(0xBD100000, 0x1204);
-    	addHandler(0xBD200000, 0x40, new MMIOHandlerReadWrite16(0xBD200000, 0x40));
-    	addHandlerRW(0xBD300000, 0x40);
-    	addHandlerRW(0xBD400000, 0x8F0);
-    	addHandlerRO(0xBD400100, 0x4);
-    	addHandlerRW(0xBD500000, 0x94);
+    	addHandler(0xBC600000, 0x14, new MMIOHandlerSystemTime(0xBC600000));
+    	addHandler(0xBC800000, 0x1D4, new MMIOHandlerDmacplus(0xBC800000));
+    	addHandler(0xBC900000, 0x1F4, new MMIOHandlerDmac(0xBC900000));
+    	addHandlerRW(0xBCC00000, 0x74);
+    	addHandlerRO(0xBCC00010, 0x4);
+    	addHandler(0xBD000000, 0x48, new MMIOHandlerDdr(0xBD000000));
+    	addHandler(MMIOHandlerNand.BASE_ADDRESS, 0x304, MMIOHandlerNand.getInstance());
+    	addHandler(0xBD200000, 0x44, new MMIOHandlerMemoryStick(0xBD200000));
+    	addHandlerRW(0xBD300000, 0x44); // Wlan
+    	addHandler(MMIOHandlerGe.BASE_ADDRESS, 0x8F0, MMIOHandlerGe.getInstance());
+    	addHandlerRW(0xBD500000, 0x94); // Graphics engine (ge)
     	addHandlerRO(0xBD500010, 0x4);
-    	addHandlerRW(0xBDE00000, 0x3C);
-    	//write32(0xBDE0001C, 0x33);
-    	write32(0xBDE0001C, 0x01);
-    	addHandlerRW(0xBDF00000, 0x90);
-    	addHandlerRW(0xBE000000, 0x54);
-    	write32(0xBE000028, 0x30);
-    	addHandlerRW(0xBE140000, 0x50);
-    	addHandlerRW(0xBE240000, 0x44);
-    	addHandlerRW(0xBE300000, 0x48);
-    	addHandlerRW(0xBE4C0000, 0x48);
-    	addHandlerRW(0xBE500000, 0x3C);
-    	addHandlerRW(0xBE580000, 0x28);
-    	addHandlerRW(0xBE740000, 0x28);
+    	addHandlerRW(0xBD600000, 0x50); // Ata
+    	addHandler(0xBD700000, 0xF, new MMIOHandlerReadWrite8(0xBD700000, 0xF)); // Ata
+    	addHandler(0xBDE00000, 0x3C, new MMIOHandlerKirk(0xBDE00000)); // Kirk
+    	addHandlerRW(0xBDF00000, 0x90); // UMD
+    	addHandler(0xBE000000, 0x80, new MMIOHandlerAudio(0xBE000000));
+    	addHandlerRW(0xBE140000, 0x204); // LCDC / display
+    	write32(0xBE140010, 0x29);
+    	write32(0xBE140014, 0x02);
+    	write32(0xBE140018, 0x02);
+    	write32(0xBE14001C, Screen.width);
+    	write32(0xBE140020, 0x0A);
+    	write32(0xBE140024, 0x02);
+    	write32(0xBE140028, 0x02);
+    	write32(0xBE14002C, Screen.height);
+    	write32(0xBE140048, Screen.width);
+    	write32(0xBE14004C, Screen.height);
+    	write32(0xBE140050, 0x01);
+    	addHandler(0xBE200000, 0x30, new MMIOHandlerI2c(0xBE200000));
+    	addHandler(MMIOHandlerGpio.BASE_ADDRESS, 0x4C, MMIOHandlerGpio.getInstance());
+    	addHandlerRW(0xBE300000, 0x48); // Power management
+    	addHandlerRW(0xBE4C0000, 0x48); // UART4 Uart4/kernel debug(?) UART (IPL, uart4, reboot)
+    	addHandlerRW(0xBE500000, 0x3C); // UART3 headphone remote SIO (hpremote)
+    	addHandler(MMIOHandlerSyscon.BASE_ADDRESS, 0x28, MMIOHandlerSyscon.getInstance());
+    	addHandler(MMIOHandlerDisplayController.BASE_ADDRESS, 0x28, MMIOHandlerDisplayController.getInstance());
     	addHandlerRW(0xBFC00000, 0x1000);
+    	addHandler(MMIOHandlerMeCore.BASE_ADDRESS, 0x2C, MMIOHandlerMeCore.getInstance());
+    	addHandler(MMIOHandlerNandPage.BASE_ADDRESS1, 0x90C, MMIOHandlerNandPage.getInstance());
+    	addHandler(MMIOHandlerNandPage.BASE_ADDRESS2, 0x90C, MMIOHandlerNandPage.getInstance());
     }
 
-    private void addHandler(int baseAddress, int length, IMMIOHandler handler) {
+    protected void addHandler(int baseAddress, int length, IMMIOHandler handler) {
     	addHandler(baseAddress, length, null, handler);
     }
 
@@ -85,11 +115,11 @@ public class MMIO extends Memory {
     	}
     }
 
-    private void addHandlerRW(int baseAddress, int length) {
+    protected void addHandlerRW(int baseAddress, int length) {
     	addHandler(baseAddress, length, new MMIOHandlerReadWrite(baseAddress, length));
     }
 
-    private void addHandlerRO(int baseAddress, int length) {
+    protected void addHandlerRO(int baseAddress, int length) {
     	addHandler(baseAddress, length, new MMIOHandlerReadOnly(baseAddress, length));
     }
 
@@ -98,10 +128,7 @@ public class MMIO extends Memory {
     }
 
     public static boolean isAddressGood(int address) {
-    	if (Memory.isAddressGood(address)) {
-    		return true;
-    	}
-    	return address >= 0xBC000000 && address < 0xBFC01000;
+        return validMemoryPage[address >>> MEMORY_PAGE_SHIFT];
     }
 
     @Override

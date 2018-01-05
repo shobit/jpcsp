@@ -48,14 +48,15 @@ public class Common {
         public final static int FLAG_IS_CONDITIONAL = (1 << 5);
         public final static int FLAG_STARTS_NEW_BLOCK = (1 << 6);
         public final static int FLAG_ENDS_BLOCK = (1 << 7);
-        public final static int FLAG_USE_VFPU_PFXS = (1 << 8);
-        public final static int FLAG_USE_VFPU_PFXT = (1 << 9);
-        public final static int FLAG_USE_VFPU_PFXD = (1 << 10);
+        public final static int FLAG_USES_VFPU_PFXS = (1 << 8);
+        public final static int FLAG_USES_VFPU_PFXT = (1 << 9);
+        public final static int FLAG_USES_VFPU_PFXD = (1 << 10);
         public final static int FLAG_CONSUMES_VFPU_PFXT = (1 << 11);
         public final static int FLAG_COMPILED_PFX = (1 << 12);
         public final static int FLAG_WRITES_RT = (1 << 13);
         public final static int FLAG_WRITES_RD = (1 << 14);
         public final static int FLAG_SYSCALL = (1 << 15);
+        public final static int FLAG_MODIFIES_INTERRUPT_STATE = (1 << 16);
         public final static int FLAGS_BRANCH_INSTRUCTION = FLAG_CANNOT_BE_SPLIT | FLAG_HAS_DELAY_SLOT | FLAG_IS_BRANCHING | FLAG_IS_CONDITIONAL;
         public final static int FLAGS_LINK_INSTRUCTION = FLAG_HAS_DELAY_SLOT | FLAG_STARTS_NEW_BLOCK;
 
@@ -472,22 +473,38 @@ public class Common {
             "E610.t", "E611.t", "", "",
             "E710.t", "E711.t", "", ""
         }, {
-            "M000.q", "", "", "",
-            "M100.q", "", "", "",
-            "M200.q", "", "", "",
-            "M300.q", "", "", "",
-            "M400.q", "", "", "",
-            "M500.q", "", "", "",
-            "M600.q", "", "", "",
-            "M700.q", "", "", "",
-            "E000.q", "", "", "",
-            "E100.q", "", "", "",
-            "E200.q", "", "", "",
-            "E300.q", "", "", "",
-            "E400.q", "", "", "",
-            "E500.q", "", "", "",
-            "E600.q", "", "", "",
-            "E700.q", "", "", ""
+            "M000.q", "M010.q", "M020.q", "M030.q",
+            "M100.q", "M110.q", "M120.q", "M130.q",
+            "M200.q", "M210.q", "M220.q", "M230.q",
+            "M300.q", "M310.q", "M320.q", "M330.q",
+            "M400.q", "M410.q", "M420.q", "M430.q",
+            "M500.q", "M510.q", "M520.q", "M530.q",
+            "M600.q", "M610.q", "M620.q", "M630.q",
+            "M700.q", "M710.q", "M720.q", "M730.q",
+            "E000.q", "E001.q", "E002.q", "E003.q",
+            "E100.q", "E101.q", "E102.q", "E103.q",
+            "E200.q", "E201.q", "E202.q", "E203.q",
+            "E300.q", "E301.q", "E302.q", "E303.q",
+            "E400.q", "E401.q", "E402.q", "E403.q",
+            "E500.q", "E501.q", "E502.q", "E503.q",
+            "E600.q", "E601.q", "E602.q", "E603.q",
+            "E700.q", "E701.q", "E702.q", "E703.q",
+            "M002.q", "M012.q", "M022.q", "M032.q",
+            "M102.q", "M112.q", "M122.q", "M132.q",
+            "M202.q", "M212.q", "M222.q", "M232.q",
+            "M302.q", "M312.q", "M322.q", "M332.q",
+            "M402.q", "M412.q", "M422.q", "M432.q",
+            "M502.q", "M512.q", "M522.q", "M532.q",
+            "M602.q", "M612.q", "M622.q", "M632.q",
+            "M702.q", "M712.q", "M722.q", "M732.q",
+            "E020.q", "E021.q", "E022.q", "E023.q",
+            "E120.q", "E121.q", "E122.q", "E123.q",
+            "E220.q", "E221.q", "E222.q", "E223.q",
+            "E320.q", "E321.q", "E322.q", "E323.q",
+            "E420.q", "E421.q", "E422.q", "E423.q",
+            "E520.q", "E521.q", "E522.q", "E523.q",
+            "E620.q", "E621.q", "E622.q", "E623.q",
+            "E720.q", "E721.q", "E722.q", "E723.q"
         }
     };
     private static final String vfpuConstants[] = {
@@ -522,6 +539,7 @@ public class Common {
     public static final int COP0_STATE_EBASE = 25;
     public static final int COP0_STATE_TAGLO = 28;
     public static final int COP0_STATE_TAGHI = 29;
+    public static final int COP0_STATE_ERROR_EPC = 30;
     public static String vsuffix[] = {
         ".s",
         ".p",
@@ -966,6 +984,9 @@ public class Common {
         return String.format("%1$-10s %2$d, 0x%3$08X", opname, vcc, ((int) (short) simm16) * 4 + opcode_address + 4);
     }
 
+    public static String disasmRTVME(String opname, int rt, int vme) {
+        return String.format("%1$-10s %2$s, 0x%3$04X", opname, gprNames[rt], vme);
+    }
 
     protected static Instruction[] m_instances = new Instruction[254];
 

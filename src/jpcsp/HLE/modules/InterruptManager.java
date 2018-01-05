@@ -16,11 +16,15 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.HLE.modules;
 
+import jpcsp.HLE.BufferInfo;
+import jpcsp.HLE.BufferInfo.LengthInfo;
+import jpcsp.HLE.BufferInfo.Usage;
 import jpcsp.HLE.HLEFunction;
 import jpcsp.HLE.HLEModule;
 import jpcsp.HLE.HLEUnimplemented;
 import jpcsp.HLE.Modules;
 import jpcsp.HLE.TPointer;
+import jpcsp.HLE.TPointer32;
 import jpcsp.HLE.kernel.Managers;
 import jpcsp.HLE.kernel.managers.IntrManager;
 
@@ -36,7 +40,7 @@ public class InterruptManager extends HLEModule {
 	}
 
 	@HLEFunction(nid = 0xCA04A2B9, version = 150)
-	public int sceKernelRegisterSubIntrHandler(int intrNumber, int subIntrNumber, int handlerAddress, int handlerArgument) {
+	public int sceKernelRegisterSubIntrHandler(int intrNumber, int subIntrNumber, TPointer handlerAddress, int handlerArgument) {
 		return Managers.intr.sceKernelRegisterSubIntrHandler(intrNumber, subIntrNumber, handlerAddress, handlerArgument);
 	}
 
@@ -105,7 +109,7 @@ public class InterruptManager extends HLEModule {
 
 	@HLEUnimplemented
 	@HLEFunction(nid = 0x0C5F7AE3, version = 150)
-	public int sceKernelCallSubIntrHandler() {
+	public int sceKernelCallSubIntrHandler(int intrNum, int subIntrNum, int handlerArg0, int handlerArg2) {
 		return 0;
 	}
 
@@ -117,19 +121,19 @@ public class InterruptManager extends HLEModule {
 
 	@HLEUnimplemented
 	@HLEFunction(nid = 0x58DD8978, version = 150)
-	public int sceKernelRegisterIntrHandler(int intrNumber, int unknown1, TPointer handler, TPointer unknown2, int unknown3) {
+	public int sceKernelRegisterIntrHandler(int intrNumber, int unknown1, TPointer func, int funcArg, @BufferInfo(lengthInfo=LengthInfo.fixedLength, length=12, usage=Usage.in) TPointer32 handler) {
 		return 0;
 	}
 
 	@HLEUnimplemented
 	@HLEFunction(nid = 0xF987B1F0, version = 150)
-	public int sceKernelReleaseIntrHandler() {
+	public int sceKernelReleaseIntrHandler(int intrNumber) {
 		return 0;
 	}
 
 	@HLEUnimplemented
 	@HLEFunction(nid = 0xFFA8B183, version = 660)
-	public int sceKernelRegisterSubIntrHandler_660(int intrNumber, int subIntrNumber, int handlerAddress, int handlerArgument) {
+	public int sceKernelRegisterSubIntrHandler_660(int intrNumber, int subIntrNumber, TPointer handlerAddress, int handlerArgument) {
 		return sceKernelRegisterSubIntrHandler(intrNumber, subIntrNumber, handlerAddress, handlerArgument);
 	}
 

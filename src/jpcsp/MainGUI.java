@@ -16,6 +16,8 @@
  */
 package jpcsp;
 
+import static jpcsp.Allegrex.compiler.RuntimeContext.setLog4jMDC;
+
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -68,6 +70,7 @@ import jpcsp.HLE.Modules;
 import jpcsp.HLE.kernel.types.SceKernelThreadInfo;
 import jpcsp.HLE.kernel.types.SceModule;
 import jpcsp.HLE.modules.IoFileMgrForUser;
+import jpcsp.HLE.modules.reboot;
 import jpcsp.HLE.modules.sceDisplay;
 import jpcsp.HLE.modules.sceUtility;
 import jpcsp.filesystems.SeekableDataInput;
@@ -1520,19 +1523,7 @@ private void OpenFileActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRS
             long size = raf.length();
             // Do not try to map very large files, this would raise on OutOfMemory exception.
             if (size > 1 * 1024 * 1024) {
-                byte[] bytes = new byte[(int) size];
-                int offset = 0;
-                // Read large files by chunks.
-                while (offset < bytes.length) {
-                    int len = raf.read(bytes, offset, Math.min(10 * 1024, bytes.length - offset));
-                    if (len < 0) {
-                        break;
-                    }
-                    if (len > 0) {
-                        offset += len;
-                    }
-                }
-                readbuffer = ByteBuffer.wrap(bytes, 0, offset);
+            	readbuffer = Utilities.readAsByteBuffer(raf);
             } else {
                 roChannel = raf.getChannel();
                 readbuffer = roChannel.map(FileChannel.MapMode.READ_ONLY, 0, (int) roChannel.size());
@@ -2255,7 +2246,7 @@ private void ejectMsActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST
 
         logConfigurationSettings();
 
-        logDirectory("flash0");
+        logDirectory(Settings.getInstance().getDirectoryMapping("flash0"));
     }
 
     private void logStartIso(UmdIsoReader iso) {
@@ -2861,7 +2852,7 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
                 break;
             }
 
-            if (!ignorePSPGame || !(umdPath.equals("ms0\\PSP\\GAME") || umdPath.equals("ms0/PSP/GAME"))) {
+            if (!ignorePSPGame || !(umdPath.equals("ms0\\PSP\\GAME") || umdPath.equals(Settings.getInstance().getDirectoryMapping("ms0") + "PSP/GAME"))) {
             	umdPaths.add(new File(umdPath + "/"));
             }
         }
@@ -2870,29 +2861,37 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
     }
 
     private void printUsage() {
-        System.err.println("Usage: java -Xmx512m -jar jpcsp.jar [OPTIONS]");
-        System.err.println();
-        System.err.println("  -d, --debugger             Open debugger at start.");
-        System.err.println("  -f, --loadfile FILE        Load a file.");
-        System.err.println("                             Example: ms0/PSP/GAME/pspsolitaire/EBOOT.PBP");
-        System.err.println("  -u, --loadumd FILE         Load a UMD. Example: umdimages/cube.iso");
-        System.err.println("  -r, --run                  Run loaded file or umd. Use with -f or -u option.");
-        System.err.println("  -t, --tests                Run the automated tests.");
-        System.err.println("  --netClientPortShift N     Increase Network client ports by N (when running 2 Jpcsp on the same computer)");
-        System.err.println("  --netServerPortShift N     Increase Network server ports by N (when running 2 Jpcsp on the same computer)");
+    	String javaLibraryPath = System.getProperty("java.library.path");
+    	if (javaLibraryPath == null || javaLibraryPath.length() == 0) {
+    		javaLibraryPath = "lib/windows-amd64";
+    	}
+
+    	final PrintStream out = System.err;
+        out.println(String.format("Usage: java -Xmx1024m -Xss2m -XX:ReservedCodeCacheSize=64m -Djava.library.path=%s -jar bin/jpcsp.jar [OPTIONS]", javaLibraryPath));
+        out.println();
+        out.println("  -d, --debugger             Open debugger at start.");
+        out.println("  -f, --loadfile FILE        Load a file.");
+        out.println("                             Example: ms0/PSP/GAME/pspsolitaire/EBOOT.PBP");
+        out.println("  -u, --loadumd FILE         Load a UMD. Example: umdimages/cube.iso");
+        out.println("  -r, --run                  Run loaded file or umd. Use with -f or -u option.");
+        out.println("  -t, --tests                Run the automated tests.");
+        out.println("  --netClientPortShift N     Increase Network client ports by N (when running 2 Jpcsp on the same computer)");
+        out.println("  --netServerPortShift N     Increase Network server ports by N (when running 2 Jpcsp on the same computer)");
+        out.println("  --flash0 DIRECTORY         Use the given directory name for the PSP flash0:  device, instead of \"flash0/\"  by default.");
+		out.println("  --flash1 DIRECTORY         Use the given directory name for the PSP flash1:  device, instead of \"flash1/\"  by default.");
+		out.println("  --flash2 DIRECTORY         Use the given directory name for the PSP flash2:  device, instead of \"flash2/\"  by default.");
+		out.println("  --ms0 DIRECTORY            Use the given directory name for the PSP ms0:     device, instead of \"ms0/\"     by default.");
+		out.println("  --exdata0 DIRECTORY        Use the given directory name for the PSP exdata0: device, instead of \"exdata0/\" by default.");
+		out.println("  --logsettings FILE         Use the given file for the log4j configuration, instead of \"LogSettings.xml\" by default.");
+		out.println("  --vsh                      Run the PSP VSH.");
+		out.println("  --reboot                   Run a low-level emulation of the complete PSP reboot process. Still experimental.");
     }
 
     private void processArgs(String[] args) {
     	for (int i = 0; i < args.length; i++) {
-            //System.err.println("Args: " + args[0]);
             if (args[i].equals("-t") || args[i].equals("--tests")) {
-                //(new AutoTestsRunner()).run();
-                //loadFile(new File("pspautotests/tests/rtc/rtc.elf"));
-                //RunEmu();
-
                 throw (new RuntimeException("Shouldn't get there"));
             } else if (args[i].equals("-d") || args[i].equals("--debugger")) {
-                // hack: reuse this function
                 EnterDebuggerActionPerformed(null);
             } else if (args[i].equals("-f") || args[i].equals("--loadfile")) {
                 i++;
@@ -2955,10 +2954,10 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
                 HTTPServer.processProxyRequestLocally = true;
 
                 if (!Modules.rebootModule.loadAndRun()) {
-                    loadFile(new File("flash0/vsh/module/vshmain.prx"), true);
+                    loadFile(new File(Settings.getInstance().getDirectoryMapping("flash0") + "vsh/module/vshmain.prx"), true);
                 }
 
-                Modules.IoFileMgrForUserModule.setfilepath("ms0/PSP/GAME");
+                Modules.IoFileMgrForUserModule.setfilepath(Settings.getInstance().getDirectoryMapping("ms0") + "PSP/GAME");
 
             	// Start VSH with the lowest priority so that the initialization of the other
             	// modules can be completed.
@@ -2973,6 +2972,34 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
             	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_VAUDIO");
             	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_ATRAC3PLUS");
             	HLEModuleManager.getInstance().LoadFlash0Module("PSP_MODULE_AV_AVCODEC");
+            } else if (args[i].equals("--reboot")) {
+            	reboot.enableReboot = true;
+            	logStart();
+	            setTitle(MetaInformation.FULL_NAME + " - reboot");
+                Modules.sceDisplayModule.setCalledFromCommandLine();
+                HTTPServer.processProxyRequestLocally = true;
+
+                if (!Modules.rebootModule.loadAndRun()) {
+                	log.error(String.format("Cannot reboot - missing files"));
+                }
+            } else if (args[i].matches("--flash[0-2]") || args[i].matches("--ms[0]") || args[i].matches("--exdata[0]")) {
+            	String directoryName = args[i].substring(2);
+            	i++;
+            	if (i < args.length) {
+            		String mappedDirectoryName = args[i];
+            		// The mapped directory name must end with "/"
+            		if (!mappedDirectoryName.endsWith("/")) {
+            			mappedDirectoryName += "/";
+            		}
+            		Settings.getInstance().setDirectoryMapping(directoryName, mappedDirectoryName);
+            		log.info(String.format("Mapping '%s' to directory '%s'", directoryName, mappedDirectoryName));
+            	} else {
+            		printUsage();
+            		break;
+            	}
+            } else if (args[i].equals("--logsettings")) {
+            	// This argument has already been processed in initLog()
+            	i++;
             } else {
                 printUsage();
                 break;
@@ -2980,11 +3007,26 @@ private void threeTimesResizeActionPerformed(java.awt.event.ActionEvent evt) {//
         }
     }
 
+    private static void initLog(String args[]) {
+    	String logSettingsFileName = "LogSettings.xml";
+
+    	// Verify if another LogSettings.xml file name has been provided on the command line
+    	for (int i = 0; i < args.length; i++) {
+    		if (args[i].equals("--logsettings")) {
+    			i++;
+    			logSettingsFileName = args[i];
+    		}
+    	}
+
+    	DOMConfigurator.configure(logSettingsFileName);
+        setLog4jMDC();
+    }
+
     /**
      * @param args the command line arguments
      */
     public static void main(String args[]) {
-        DOMConfigurator.configure("LogSettings.xml");
+    	initLog(args);
 
 		// Re-enable all disabled algorithms as the PSP is allowing them
 		Security.setProperty("jdk.certpath.disabledAlgorithms", "");

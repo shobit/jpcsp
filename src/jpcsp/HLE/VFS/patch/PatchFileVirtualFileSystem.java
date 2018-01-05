@@ -16,19 +16,8 @@ along with Jpcsp.  If not, see <http://www.gnu.org/licenses/>.
  */
 package jpcsp.HLE.VFS.patch;
 
-import static jpcsp.Allegrex.Common._a1;
 import static jpcsp.Allegrex.Common._v0;
 import static jpcsp.Allegrex.Common._zr;
-import static jpcsp.HLE.Modules.sceAtaModule;
-import static jpcsp.HLE.Modules.sceDdrModule;
-import static jpcsp.HLE.Modules.sceDmacplusModule;
-import static jpcsp.HLE.Modules.sceGpioModule;
-import static jpcsp.HLE.Modules.sceI2cModule;
-import static jpcsp.HLE.Modules.sceLcdcModule;
-import static jpcsp.HLE.Modules.sceNandModule;
-import static jpcsp.HLE.Modules.scePwmModule;
-import static jpcsp.HLE.Modules.sceSysconModule;
-import static jpcsp.HLE.Modules.sceSysregModule;
 import static jpcsp.HLE.modules.ThreadManForUser.JR;
 import static jpcsp.HLE.modules.ThreadManForUser.MOVE;
 import static jpcsp.HLE.modules.ThreadManForUser.NOP;
@@ -65,91 +54,12 @@ public class PatchFileVirtualFileSystem extends AbstractProxyVirtualFileSystem {
 			new PrxPatchInfo("kd/loadcore.prx", 0x00003D58, 0x10C0FFBE, NOP()),      // Allow linking user stub to kernel lib
 			new PrxPatchInfo("kd/loadcore.prx", 0x00005D1C, 0x5040FE91, NOP()),      // Allow loading of non-encrypted modules for apiType==80 (Disable test at https://github.com/uofw/uofw/blob/master/src/loadcore/loadelf.c#L1059)
 			new PrxPatchInfo("kd/loadcore.prx", 0x00005D20, 0x3C118002, NOP()),      // Allow loading of non-encrypted modules for apiType==80 (Disable test at https://github.com/uofw/uofw/blob/master/src/loadcore/loadelf.c#L1059)
+			new PrxPatchInfo("kd/loadcore.prx", 0x00005790, 0x5462FFF4, NOP()),      // Allow loading of non-encrypted modules for apiType==0x300 (Disable test at https://github.com/uofw/uofw/blob/master/src/loadcore/loadelf.c#L1149)
+			new PrxPatchInfo("kd/loadcore.prx", 0x00005794, 0x3C118002, NOP()),      // Allow loading of non-encrypted modules for apiType==0x300 (Disable test at https://github.com/uofw/uofw/blob/master/src/loadcore/loadelf.c#L1149)
 			new PrxPatchInfo("kd/loadcore.prx", 0x00004378, 0x5120FFDB, NOP()),      // Allow loading of kernel modules being not encrypted (set "execInfo->isKernelMod = SCE_TRUE" even when "decryptMode == 0": https://github.com/uofw/uofw/blob/master/src/loadcore/loadelf.c#L118)
-			// lowio.prx: syscalls from sceSysreg module
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregGetFuseId"        , 0x00001AF4, 0x3C03BC10, 0x3C07BC10),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregAtaClkSelect"     , 0x00002584, 0x27BDFFF0, 0x3C028000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregAtaClkEnable"     , 0x00000510, 0x24040001, 0x0800020A),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregAtaClkDisable"    , 0x0000051C, 0x24040001, 0x0800020A),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregAtahddClkEnable"  , 0x00000528, 0x24040002, 0x0800020A),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregAtahddClkDisable" , 0x00000534, 0x24040002, 0x0800020A),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregUsbhostClkEnable" , 0x00000540, 0x3C040001, 0x0800020A),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregUsbhostClkDisable", 0x0000054C, 0x3C040001, 0x0800020A),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysreg_driver_4841B2D2" , 0x00001788, 0x27BDFFF0, 0xAFBF0008),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysregApbTimerClkSelect", 0x00001F98, 0x27BDFFF0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceSysregModule, "sceSysreg_driver_96D74557" , 0x00002CB0, 0x27BDFFF0, 0xAFBF0000),
-			// lowio.prx: syscalls from sceGpio module
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceGpioModule, "sceGpioSetPortMode", 0x00002E24, 0x27BDFFE0, 0xAFB00000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceGpioModule, "sceGpioSetIntrMode", 0x00002FD0, 0x27BDFFE0, 0xAFB00000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceGpioModule, "sceGpioPortRead"   , 0x00003204, 0x3C02BE24, 0x34440004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceGpioModule, "sceGpioPortSet"    , 0x00003214, 0x3C05BE24, 0x34A30008),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceGpioModule, "sceGpioPortClear"  , 0x0000322C, 0x3C05BE24, 0x34A3000C),
-			// lowio.prx: syscalls from scePwm module
-			new PrxSyscallPatchInfo("kd/lowio.prx", scePwmModule, "scePwm_driver_36F98EBA", 0x00003B48, 0x3C028000, 0x2C880003),
-			new PrxSyscallPatchInfo("kd/lowio.prx", scePwmModule, "scePwm_driver_94552DD4", 0x000039C0, 0x3C028000, 0x2C880003),
-			// lowio.prx: syscalls from sceLcdc module
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceLcdcModule, "sceLcdc_driver_E9DBD35F", 0x00007FD8, 0x27BDFFD0, 0xAFB50014),
-			// lowio.prx: syscalls from sceDmacplus module
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceDmacplusModule, "sceDmacplusLcdcDisable"  , 0x000059DC, 0x27BDFFF0, 0xAFB00000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceDmacplusModule, "sceDmacplusLcdcEnable"   , 0x0000587C, 0x27BDFFF0, 0xAFB00000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceDmacplusModule, "sceDmacplusLcdcSetFormat", 0x000057C0, 0x3C028000, 0x30880007),
-			// lowio.prx: syscalls from sceNand module
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandSetWriteProtect"     , 0x00009014, 0x27BDFFF0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandLock"                , 0x00009094, 0x27BDFFF0, 0x3C030000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandUnlock"              , 0x00009114, 0x27BDFFF0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReset"               , 0x00009180, 0x27BDFFF0, 0xAFB00000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadId"              , 0x00009208, 0x24030090, 0x3C01BD10),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadAccess"          , 0x00009260, 0x27BDFFD0, 0x3C028000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandWriteAccess"         , 0x00009444, 0x27BDFFD0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandEraseBlock"          , 0x00009608, 0x27BDFFF0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadExtraOnly"       , 0x0000970C, 0x27BDFFE0, 0xAFB3000C),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadStatus"          , 0x00009888, 0x3C09BD10, 0x35231008),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandSetScramble"         , 0x000098BC, 0x3C030000, 0x00001021),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadPages"           , 0x000098CC, 0x27BDFFF0, 0x00004021),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandWritePages"          , 0x00009910, 0x24080010, 0x0005400B),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadPagesRawExtra"   , 0x00009938, 0x27BDFFF0, 0xAFBF0000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandWritePagesRawExtra"  , 0x00009954, 0x24090030, 0x24080020),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadPagesRawAll"     , 0x00009978, 0x27BDFFF0, 0xAFBF0000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandWritePagesRawAll"    , 0x00009994, 0x27BDFFF0, 0xAFBF0000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandDetectChip"          , 0x0000A010, 0x27BDFFE0, 0x03A02021),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandWriteBlockWithVerify", 0x0000A134, 0x27BDFFE0, 0xAFBF0014),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandReadBlockWithRetry"  , 0x0000A1E8, 0x27BDFFE0, 0xAFBF0014),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandVerifyBlockWithRetry", 0x0000A26C, 0x27BDFFC0, 0xAFB50024),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandEraseBlockWithRetry" , 0x0000A3BC, 0x3C030000, 0x8C661A30),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandIsBadBlock"          , 0x0000A430, 0x3C030000, 0x8C661A30),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandDoMarkAsBadBlock"    , 0x0000A4BC, 0x27BDFFE0, 0xAFB50014),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandDumpWearBBMSize"     , 0x0000A5C8, 0x27BDFFE0, 0xAFB60018),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandCountChipMakersBBM"  , 0x0000A6B4, 0x27BDFFE0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandDetectChipMakersBBM" , 0x0000A748, 0x27BDFFD0, 0xAFB60018),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandEraseAllBlock"       , 0x0000A840, 0x27BDFFE0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandTestBlock"           , 0x0000A8D8, 0x27BDBDE0, 0xAFB24208),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandGetPageSize"         , 0x0000AA88, 0x3C040000, 0x03E00008),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandGetPagesPerBlock"    , 0x0000AA94, 0x3C040000, 0x03E00008),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandGetTotalBlocks"      , 0x0000AAA0, 0x3C040000, 0x03E00008),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandWriteBlock"          , 0x0000AAAC, 0x27BDFFF0, 0xAFB20008),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandCalcEcc"             , 0x0000AB0C, 0x27BDFFF0, 0xAFB3000C),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandVerifyEcc"           , 0x0000AD38, 0x27BDFFF0, 0xAFBF0000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceNandModule, "sceNandCorrectEcc"          , 0x0000AD54, 0x27BDFFF0, 0xAFBF0000),
-			// lowio.prx: syscalls from sceI2c module
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceI2cModule, "sceI2cMasterTransmitReceive" , 0x000044A8, 0x27BDFFD0, 0xAFB00000),
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceI2cModule, "sceI2cMasterTransmit"        , 0x00003D3C, 0x27BDFFE0, 0xAFB10004),
-			// lowio.prx: syscalls from sceDdr module
-			new PrxSyscallPatchInfo("kd/lowio.prx", sceDdrModule, "sceDdrFlush"                 , 0x000011B4, 0x0000000F, 0x3C02BD00),
-			// syscon.prx: syscalls
-			new PrxSyscallPatchInfo("kd/syscon.prx", sceSysconModule, "sceSysconCmdExec"         , 0x0000154C, 0x27BDFFF0, 0xAFB10004),
-			new PrxSyscallPatchInfo("kd/syscon.prx", sceSysconModule, "sceSysconCmdExecAsync"    , 0x00001600, 0x27BDFFE0, 0xAFB40010),
-			new PrxSyscallPatchInfo("kd/syscon.prx", sceSysconModule, "sceSysconGetBaryonVersion", 0x00002DB4, 0x27BDFFF0, 0xAFBF0000),
-			new PrxSyscallPatchInfo("kd/syscon.prx", sceSysconModule, "sceSysconGetTimeStamp"    , 0x000025F0, 0x27BDFF90, 0xAFB00060),
-			new PrxSyscallPatchInfo("kd/syscon.prx", sceSysconModule, "sceSysconGetPommelVersion", 0x000033E8, 0x27BDFFF0, 0xAFBF0000),
-			new PrxSyscallPatchInfo("kd/syscon.prx", sceSysconModule, "sceSysconGetPowerStatus"  , 0x000034AC, 0x27BDFFF0, 0xAFBF0000),
-			new PrxSyscallPatchInfo("kd/syscon.prx", sceSysconModule, "sceSysconReadScratchPad"  , 0x0000274C, 0x27BDFF90, 0x24C9FFFF),
-			// ata.prx: syscalls
-			new PrxSyscallPatchInfo("kd/ata.prx", sceAtaModule, "sceAta_driver_BE6261DA", 0x00002338, 0x0000000F, 0x00042827),
 			// semawm.prx used by sceSemawm.module_start
 			new PrxPatchInfo("kd/semawm.prx", 0x00005620, 0x27BDFFD0, JR()),           // Disable the internal module signature check
 			new PrxPatchInfo("kd/semawm.prx", 0x00005624, 0xAFBF0024, MOVE(_v0, _zr)), // Disable the internal module signature check
-			// me_wrapper.prx used by sceMeCodecWrapper.module_start
-			new PrxPatchInfo("kd/me_wrapper.prx", 0x00001F38, 0x24050001, MOVE(_a1, _zr)), // Disable wait in sub_00001C30() (https://github.com/uofw/uofw/blob/master/src/me_wrapper/me_wrapper.c#L1169 changed second argument from 1 to 0)
 			// Last entry is a dummy one
 			new PatchInfo("XXX dummy XXX", 0, 0, 0) // Dummy entry for easier formatting of the above entries
 	};
@@ -427,7 +337,7 @@ public class PatchFileVirtualFileSystem extends AbstractProxyVirtualFileSystem {
 		}
 	}
 
-	private static class PrxSyscallPatchInfo extends PrxPatchInfo {
+	protected static class PrxSyscallPatchInfo extends PrxPatchInfo {
 		private PrxPatchInfo patchInfo2;
 		private String functionName;
 

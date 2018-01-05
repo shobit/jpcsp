@@ -21,8 +21,10 @@ import org.apache.log4j.Logger;
 import jpcsp.Emulator;
 import jpcsp.Memory;
 import jpcsp.NIDMapper;
+import jpcsp.Processor;
 import jpcsp.Allegrex.Common.Instruction;
 import jpcsp.Allegrex.compiler.RuntimeContext;
+import jpcsp.Allegrex.compiler.RuntimeContextLLE;
 import jpcsp.Allegrex.Common;
 import jpcsp.Allegrex.CpuState;
 import jpcsp.Allegrex.Decoder;
@@ -65,7 +67,7 @@ public class SyscallHandler {
     	}
     }
 
-    private static void unsupportedSyscall(int code) throws Exception {
+    private static int unsupportedSyscall(int code) {
     	if (ignoreUnmappedImportsSettingsListerner == null) {
     		ignoreUnmappedImportsSettingsListerner = new IgnoreUnmappedImportsSettingsListerner();
     		Settings.getInstance().registerSettingsListener("SyscallHandler", "emu.ignoreUnmappedImports", ignoreUnmappedImportsSettingsListerner);
@@ -178,14 +180,30 @@ public class SyscallHandler {
 	        		log.error(String.format("HLE Function %s not activated by default for Firmware Version %d", name, Emulator.getInstance().getFirmwareVersion()));
         		} else {
 	        		int nid = nidMapper.getNidBySyscall(code);
-	        		log.error(String.format("NID 0x%08X not activated by default for Firmware Version %d", nid, Emulator.getInstance().getFirmwareVersion()));
+	        		if (nid != 0) {
+	        			log.error(String.format("NID 0x%08X not activated by default for Firmware Version %d", nid, Emulator.getInstance().getFirmwareVersion()));
+	        		} else {
+	        			log.error(String.format("Unknown syscall 0x%05X", code));
+	        		}
         		}
         	}
         }
+
+    	return 0;
     }
 
-    public static void syscall(int code) throws Exception {
-    	// All syscalls are now implemented natively in the compiler
-    	unsupportedSyscall(code);
+    public static int syscall(int code) {
+    	if (RuntimeContextLLE.isLLEActive()) {
+    		Processor processor = Emulator.getProcessor();
+    		if (log.isDebugEnabled()) {
+    			log.debug(String.format("0x%08X - syscall 0x%05X", processor.cpu.pc, code));
+    		}
+
+    		// For LLE syscalls, trigger a syscall exception
+			return RuntimeContextLLE.triggerSyscallException(processor, code);
+    	}
+
+    	// All HLE syscalls are now implemented natively in the compiler
+		return unsupportedSyscall(code);
     }
 }

@@ -66,7 +66,9 @@ import static jpcsp.format.PSP.PSP_HEADER_SIZE;
 import static jpcsp.format.PSP.PSP_MAGIC;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.log4j.Logger;
@@ -76,6 +78,8 @@ public class LoadCoreForKernel extends HLEModule {
     private Set<Integer> dummyModuleData;
     private TPointer syscallStubAddr;
     private int availableSyscallStubs;
+    private final Map<String, String> functionNames = new HashMap<String, String>();
+    private final Map<Integer, Integer> functionNids = new HashMap<Integer, Integer>();
 
 	private class OnModuleStartAction implements IAction {
 		@Override
@@ -495,7 +499,7 @@ public class LoadCoreForKernel extends HLEModule {
     	if (!reboot.enableReboot) {
     		return null;
     	}
-    	
+
     	address &= Memory.addressMask;
 
     	Memory mem = Memory.getInstance();
@@ -504,16 +508,18 @@ public class LoadCoreForKernel extends HLEModule {
 
     	int[] nids = getFunctionNIDsByAddress(mem, registeredLibs, address);
     	if (nids == null) {
-    		// Verify if this not the address of a stub call:
-    		//   J   realAddress
-    		//   NOP
-        	if ((mem.read32(address) >>> 26) == AllegrexOpcodes.J) {
-        		if (mem.read32(address + 4) == ThreadManForUser.NOP()) {
-        			int jumpAddress = (mem.read32(address) & 0x03FFFFFF) << 2;
+    		if (Memory.isAddressGood(address)) {
+	    		// Verify if this not the address of a stub call:
+	    		//   J   realAddress
+	    		//   NOP
+	        	if ((mem.read32(address) >>> 26) == AllegrexOpcodes.J) {
+	        		if (mem.read32(address + 4) == ThreadManForUser.NOP()) {
+	        			int jumpAddress = (mem.read32(address) & 0x03FFFFFF) << 2;
 
-        			nids = getFunctionNIDsByAddress(mem, registeredLibs, jumpAddress);
-        		}
-        	}
+	        			nids = getFunctionNIDsByAddress(mem, registeredLibs, jumpAddress);
+	        		}
+	        	}
+    		}
     	}
 
     	if (nids != null) {
@@ -544,6 +550,7 @@ public class LoadCoreForKernel extends HLEModule {
     	int g_loadCore = getLoadCoreBaseAddress();
     	int registeredMods = mem.read32(g_loadCore + 524);
     	int module = getModuleByAddress(mem, registeredMods, address);
+    	String functionName = null;
     	if (module != 0) {
     		String moduleName = Utilities.readStringNZ(module + 8, 27);
     		int moduleStart = mem.read32(module + 80) & Memory.addressMask;
@@ -555,27 +562,37 @@ public class LoadCoreForKernel extends HLEModule {
     		int textAddr = mem.read32(module + 108) & Memory.addressMask;
 
     		if (address == moduleStart) {
-    			return String.format("%s.module_start", moduleName);
+    			functionName = String.format("%s.module_start", moduleName);
+    		} else if (address == moduleStop) {
+    			functionName = String.format("%s.module_stop", moduleName);
+    		} else if (address == moduleBootStart) {
+    			functionName = String.format("%s.module_bootstart", moduleName);
+    		} else if (address == moduleRebootBefore) {
+    			functionName = String.format("%s.module_reboot_before", moduleName);
+    		} else if (address == moduleRebootPhase) {
+    			functionName = String.format("%s.module_reboot_phase", moduleName);
+    		} else if (address == entryAddr) {
+    			functionName = String.format("%s.module_start", moduleName);
+    		} else {
+    			functionName = String.format("%s.sub_%08X", moduleName, address - textAddr);
     		}
-    		if (address == moduleStop) {
-    			return String.format("%s.module_stop", moduleName);
-    		}
-    		if (address == moduleBootStart) {
-    			return String.format("%s.module_bootstart", moduleName);
-    		}
-    		if (address == moduleRebootBefore) {
-    			return String.format("%s.module_reboot_before", moduleName);
-    		}
-    		if (address == moduleRebootPhase) {
-    			return String.format("%s.module_reboot_phase", moduleName);
-    		}
-    		if (address == entryAddr) {
-    			return String.format("%s.module_start", moduleName);
-    		}
-    		return String.format("%s.sub_%08X", moduleName, address - textAddr);
     	}
 
-    	return null;
+    	if (functionName != null && functionNames.containsKey(functionName)) {
+    		functionName = functionNames.get(functionName);
+    	}
+
+    	return functionName;
+    }
+
+    public void addFunctionName(String moduleName, int address, String functionName) {
+    	functionNames.put(String.format("%s.sub_%08X", moduleName, address), functionName);
+    }
+
+    public void addFunctionNid(int address, int nid) {
+    	address &= Memory.addressMask;
+
+    	functionNids.put(address, nid);
     }
 
     private int[] getFunctionNIDsByAddress(Memory mem, int registeredLibs, int address) {
@@ -601,7 +618,11 @@ public class LoadCoreForKernel extends HLEModule {
 	    	}
 		}
 
-    	return nids;
+		if (nids == null && functionNids.containsKey(address)) {
+			nids = new int[] { functionNids.get(address).intValue() };
+		}
+
+		return nids;
     }
 
     private int getModuleByAddress(Memory mem, int linkedModules, int address) {

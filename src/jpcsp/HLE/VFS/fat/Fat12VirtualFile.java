@@ -28,17 +28,8 @@ import static jpcsp.util.Utilities.alignUp;
 import jpcsp.HLE.VFS.IVirtualFileSystem;
 
 public class Fat12VirtualFile extends FatVirtualFile {
-	public Fat12VirtualFile(IVirtualFileSystem vfs) {
-		super(vfs, 0xBFE0);
-		initFat12();
-	}
-
-	public Fat12VirtualFile(IVirtualFileSystem vfs, int totalSectors) {
-		super(vfs, totalSectors);
-		initFat12();
-	}
-
-	private void initFat12() {
+	public Fat12VirtualFile(String deviceName, IVirtualFileSystem vfs, int totalSectors) {
+		super(deviceName, vfs, totalSectors);
 		// FAT12 has no FS Info sector
 		setFsInfoSectorNumber(-1);
 
@@ -142,8 +133,13 @@ public class Fat12VirtualFile extends FatVirtualFile {
 		int offset = (fatIndex * sectorSize) / 3 * 2;
 		int startIndex = (offset / 2 * 3) - (fatIndex * sectorSize);
 		for (int i = startIndex, j = 0; i < sectorSize; j += 2) {
-			int value = fatClusterMap[offset + j];
-			value |= fatClusterMap[offset + j + 1] << 12;
+			int value = 0;
+			if (offset + j < fatClusterMap.length) {
+				value = fatClusterMap[offset + j];
+				if (offset + j + 1 < fatClusterMap.length) {
+					value |= fatClusterMap[offset + j + 1] << 12;
+				}
+			}
 
 			// Store 3 bytes representing two FAT12 entries
 			storeFatByte(i, value);
